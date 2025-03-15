@@ -1,39 +1,61 @@
 import 'package:flutter/material.dart';
+import 'package:test_toolbar/graph/graph_abs1.dart';
+import 'package:test_toolbar/graph/graph_abs2.dart';
+import 'package:test_toolbar/graph/graph_abs3.dart';
+import 'package:test_toolbar/graph/graph_abs4.dart';
+import 'package:test_toolbar/graph/graph_ana1.dart';
+import 'package:test_toolbar/graph/graph_ana2.dart';
+import 'package:test_toolbar/graph/graph_ana3.dart';
+import 'package:test_toolbar/graph/graph_ana4.dart';
+import 'package:test_toolbar/graph/graph_camshaft.dart';
+import 'package:test_toolbar/graph/graph_enginespeed.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+
 // import 'package:sleek_circular_slider/sleek_circular_slider.dart';
+import 'variables.dart';
+
+class NetworkService {
+  static const String baseUrl = "http://127.0.0.1:5000";
+
+  // Gửi dữ liệu cập nhật
+  static Future<void> updateEngineData(
+    double speed,
+    int teeth,
+    int gapTeeth,
+  ) async {
+    try {
+      final response = await http.post(
+        Uri.parse('http://127.0.0.1:5000/update_engine_data'),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "speed": speed,
+          "teeth": teeth,
+          "gapTeeth": gapTeeth,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        print("Server response: ${response.body}");
+      } else {
+        print("Failed to send data: ${response.statusCode}");
+      }
+    } catch (e) {
+      print("Error: $e");
+    }
+  }
+}
 
 class SimulatePage extends StatefulWidget {
+  const SimulatePage({super.key});
+
   @override
   State<StatefulWidget> createState() {
-    // TODO: implement createState
     return _SimulateUIstate();
   }
 }
 
 class _SimulateUIstate extends State<SimulatePage> {
-  double crankValue = 1500;
-  double abs1 = 0;
-  double abs2 = 0;
-  double abs3 = 0;
-  double abs4 = 0;
-  double ana1 = 0;
-  double ana2 = 0;
-  double ana3 = 0;
-  double ana4 = 0;
-  TextEditingController teethController = TextEditingController();
-  TextEditingController gapteethController = TextEditingController();
-  TextEditingController indefteethController = TextEditingController();
-  TextEditingController exdefteethController = TextEditingController();
-  TextEditingController gap1teethController = TextEditingController();
-  TextEditingController gap11teethController = TextEditingController();
-  TextEditingController gap2teethController = TextEditingController();
-  TextEditingController gap22teethController = TextEditingController();
-  TextEditingController gap3teethController = TextEditingController();
-  TextEditingController gap33teethController = TextEditingController();
-  TextEditingController gap4teethController = TextEditingController();
-  TextEditingController gap44teethController = TextEditingController();
-  TextEditingController gap5teethController = TextEditingController();
-  TextEditingController gap55teethController = TextEditingController();
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -68,7 +90,24 @@ class _SimulateUIstate extends State<SimulatePage> {
                   textAlign: TextAlign.center,
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 10),
+              Center(
+                child: ElevatedButton(
+                  onPressed: () {},
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                  child:
+                      isSending
+                          ? CircularProgressIndicator(
+                            color: Colors.white,
+                          ) // Hiển thị loading
+                          : Text('SEND DATA'),
+                ),
+              ),
+              const SizedBox(height: 10),
               // Tiêu đề "Engine Speed"
               Container(
                 width: double.infinity,
@@ -96,10 +135,18 @@ class _SimulateUIstate extends State<SimulatePage> {
                       max: 6000,
                       divisions: 120,
                       label: crankValue.toInt().toString(),
+                      activeColor: Colors.red, // Màu của phần đã trượt
+                      inactiveColor:
+                          Colors.red.shade100, // Màu của phần chưa trượt
                       onChanged: (value) {
                         setState(() {
                           crankValue = value;
                         });
+                        NetworkService.updateEngineData(
+                          crankValue,
+                          int.tryParse(teethController.text) ?? 36,
+                          int.tryParse(gapteethController.text) ?? 0,
+                        );
                       },
                     ),
                   ),
@@ -111,13 +158,6 @@ class _SimulateUIstate extends State<SimulatePage> {
               ),
 
               // CRANKSHAFT GEAR SETUP
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text('SEND DATA'),
-                  Switch(value: false, onChanged: (val) {}),
-                ],
-              ),
               Container(
                 width: double.infinity,
                 padding: EdgeInsets.all(10),
@@ -150,6 +190,13 @@ class _SimulateUIstate extends State<SimulatePage> {
                           controller: teethController,
                           keyboardType: TextInputType.number,
                           decoration: InputDecoration(hintText: '36'),
+                          onSubmitted: (value) {
+                            NetworkService.updateEngineData(
+                              crankValue,
+                              int.tryParse(value) ?? 36,
+                              int.tryParse(gapteethController.text) ?? 0,
+                            );
+                          },
                         ),
                       ),
                     ],
@@ -169,12 +216,48 @@ class _SimulateUIstate extends State<SimulatePage> {
                           controller: gapteethController,
                           keyboardType: TextInputType.number,
                           decoration: InputDecoration(hintText: '0'),
+                          onSubmitted: (value) {
+                            NetworkService.updateEngineData(
+                              crankValue,
+                              int.tryParse(teethController.text) ?? 36,
+                              int.tryParse(value) ?? 0,
+                            );
+                          },
                         ),
                       ),
                     ],
                   ),
                 ),
               ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: 200,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => GraphEnginespeed(),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    backgroundColor: Colors.red,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.zero, // Button vuông
+                    ),
+                  ),
+                  child: Text(
+                    'Graph',
+                    style: TextStyle(
+                      fontFamily: 'Roboto',
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
               Container(
                 width: double.infinity,
                 padding: EdgeInsets.all(10),
@@ -235,6 +318,7 @@ class _SimulateUIstate extends State<SimulatePage> {
                   ),
                 ),
               ),
+
               Center(
                 child: SizedBox(
                   width: 700,
@@ -403,6 +487,32 @@ class _SimulateUIstate extends State<SimulatePage> {
                   ),
                 ),
               ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: 200,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => GraphCamshaft()),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    backgroundColor: Colors.red,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.zero, // Button vuông
+                    ),
+                  ),
+                  child: Text(
+                    'Graph',
+                    style: TextStyle(
+                      fontFamily: 'Roboto',
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
               // // Dropdown chọn gap teeth
               const SizedBox(height: 20),
               // DANH SÁCH ABS & ANALOG
@@ -557,6 +667,10 @@ class _SimulateUIstate extends State<SimulatePage> {
                       max: 150,
                       divisions: 150,
                       label: abs1.toInt().toString(),
+                      activeColor: Colors.red, // Màu của phần đã trượt
+                      inactiveColor:
+                          Colors.red.shade100, // Màu của phần chưa trượt
+
                       onChanged: (value) {
                         setState(() {
                           abs1 = value;
@@ -565,6 +679,32 @@ class _SimulateUIstate extends State<SimulatePage> {
                     ),
                   ),
                   Text('${abs1.toInt()} km/h', style: TextStyle(fontSize: 18)),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 200,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => GraphAbs1()),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        backgroundColor: Colors.red,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.zero, // Button vuông
+                        ),
+                      ),
+                      child: Text(
+                        'Graph',
+                        style: TextStyle(
+                          fontFamily: 'Roboto',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
@@ -579,6 +719,9 @@ class _SimulateUIstate extends State<SimulatePage> {
                       max: 150,
                       divisions: 150,
                       label: abs2.toInt().toString(),
+                      activeColor: Colors.red, // Màu của phần đã trượt
+                      inactiveColor:
+                          Colors.red.shade100, // Màu của phần chưa trượt
                       onChanged: (value) {
                         setState(() {
                           abs2 = value;
@@ -587,6 +730,32 @@ class _SimulateUIstate extends State<SimulatePage> {
                     ),
                   ),
                   Text('${abs2.toInt()} km/h', style: TextStyle(fontSize: 18)),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 200,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => GraphAbs2()),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        backgroundColor: Colors.red,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.zero, // Button vuông
+                        ),
+                      ),
+                      child: Text(
+                        'Graph',
+                        style: TextStyle(
+                          fontFamily: 'Roboto',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
@@ -601,6 +770,9 @@ class _SimulateUIstate extends State<SimulatePage> {
                       max: 150,
                       divisions: 150,
                       label: abs3.toInt().toString(),
+                      activeColor: Colors.red, // Màu của phần đã trượt
+                      inactiveColor:
+                          Colors.red.shade100, // Màu của phần chưa trượt
                       onChanged: (value) {
                         setState(() {
                           abs3 = value;
@@ -609,6 +781,32 @@ class _SimulateUIstate extends State<SimulatePage> {
                     ),
                   ),
                   Text('${abs3.toInt()} km/h', style: TextStyle(fontSize: 18)),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 200,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => GraphAbs3()),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        backgroundColor: Colors.red,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.zero, // Button vuông
+                        ),
+                      ),
+                      child: Text(
+                        'Graph',
+                        style: TextStyle(
+                          fontFamily: 'Roboto',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
@@ -623,6 +821,9 @@ class _SimulateUIstate extends State<SimulatePage> {
                       max: 150,
                       divisions: 150,
                       label: abs4.toInt().toString(),
+                      activeColor: Colors.red, // Màu của phần đã trượt
+                      inactiveColor:
+                          Colors.red.shade100, // Màu của phần chưa trượt
                       onChanged: (value) {
                         setState(() {
                           abs4 = value;
@@ -631,6 +832,32 @@ class _SimulateUIstate extends State<SimulatePage> {
                     ),
                   ),
                   Text('${abs4.toInt()} km/h', style: TextStyle(fontSize: 18)),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 200,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => GraphAbs4()),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        backgroundColor: Colors.red,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.zero, // Button vuông
+                        ),
+                      ),
+                      child: Text(
+                        'Graph',
+                        style: TextStyle(
+                          fontFamily: 'Roboto',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
 
@@ -661,6 +888,9 @@ class _SimulateUIstate extends State<SimulatePage> {
                       max: 5,
                       divisions: 5,
                       label: ana1.toInt().toString(),
+                      activeColor: Colors.red, // Màu của phần đã trượt
+                      inactiveColor:
+                          Colors.red.shade100, // Màu của phần chưa trượt
                       onChanged: (value) {
                         setState(() {
                           ana1 = value;
@@ -669,6 +899,32 @@ class _SimulateUIstate extends State<SimulatePage> {
                     ),
                   ),
                   Text('${ana1.toInt()} V', style: TextStyle(fontSize: 18)),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 200,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => GraphAna1()),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        backgroundColor: Colors.red,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.zero, // Button vuông
+                        ),
+                      ),
+                      child: Text(
+                        'Graph',
+                        style: TextStyle(
+                          fontFamily: 'Roboto',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
@@ -683,6 +939,9 @@ class _SimulateUIstate extends State<SimulatePage> {
                       max: 5,
                       divisions: 5,
                       label: ana2.toInt().toString(),
+                      activeColor: Colors.red, // Màu của phần đã trượt
+                      inactiveColor:
+                          Colors.red.shade100, // Màu của phần chưa trượt
                       onChanged: (value) {
                         setState(() {
                           ana2 = value;
@@ -691,6 +950,32 @@ class _SimulateUIstate extends State<SimulatePage> {
                     ),
                   ),
                   Text('${ana2.toInt()} V', style: TextStyle(fontSize: 18)),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 200,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => GraphAna2()),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        backgroundColor: Colors.red,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.zero, // Button vuông
+                        ),
+                      ),
+                      child: Text(
+                        'Graph',
+                        style: TextStyle(
+                          fontFamily: 'Roboto',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
@@ -705,6 +990,9 @@ class _SimulateUIstate extends State<SimulatePage> {
                       max: 5,
                       divisions: 5,
                       label: ana3.toInt().toString(),
+                      activeColor: Colors.red, // Màu của phần đã trượt
+                      inactiveColor:
+                          Colors.red.shade100, // Màu của phần chưa trượt
                       onChanged: (value) {
                         setState(() {
                           ana3 = value;
@@ -713,6 +1001,32 @@ class _SimulateUIstate extends State<SimulatePage> {
                     ),
                   ),
                   Text('${ana3.toInt()} V', style: TextStyle(fontSize: 18)),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 200,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => GraphAna3()),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        backgroundColor: Colors.red,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.zero, // Button vuông
+                        ),
+                      ),
+                      child: Text(
+                        'Graph',
+                        style: TextStyle(
+                          fontFamily: 'Roboto',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
@@ -727,6 +1041,9 @@ class _SimulateUIstate extends State<SimulatePage> {
                       max: 5,
                       divisions: 5,
                       label: ana4.toInt().toString(),
+                      activeColor: Colors.red, // Màu của phần đã trượt
+                      inactiveColor:
+                          Colors.red.shade100, // Màu của phần chưa trượt
                       onChanged: (value) {
                         setState(() {
                           ana4 = value;
@@ -735,6 +1052,32 @@ class _SimulateUIstate extends State<SimulatePage> {
                     ),
                   ),
                   Text('${ana4.toInt()} V', style: TextStyle(fontSize: 18)),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 200,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => GraphAna4()),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        backgroundColor: Colors.red,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.zero, // Button vuông
+                        ),
+                      ),
+                      child: Text(
+                        'Graph',
+                        style: TextStyle(
+                          fontFamily: 'Roboto',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ],

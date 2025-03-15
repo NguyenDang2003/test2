@@ -1,24 +1,13 @@
 import 'package:flutter/material.dart';
+import 'variables.dart';
 
 class CanPage extends StatefulWidget {
+  const CanPage({super.key});
   @override
-  _CanPageState createState() => _CanPageState();
+  CanPageState createState() => CanPageState();
 }
 
-class _CanPageState extends State<CanPage> {
-  bool isConnected = false;
-  bool isActive = false;
-  bool isActive1 = false;
-  bool isActive2 = false;
-  bool isActive3 = false;
-  bool isActive4 = false;
-  bool isActive5 = false;
-  bool isActive6 = false;
-  bool isActive7 = false;
-  bool isActive8 = false;
-  bool isActive9 = false;
-  TextEditingController engineSpeedController = TextEditingController();
-
+class CanPageState extends State<CanPage> {
   @override
   Widget build(BuildContext context) {
     return Stack(
@@ -62,13 +51,13 @@ class _CanPageState extends State<CanPage> {
                   padding: EdgeInsets.symmetric(vertical: 4, horizontal: 8),
                   decoration: BoxDecoration(
                     color:
-                        isConnected
+                        isConnectedDashboard
                             ? Colors.green
                             : Colors.red, // Màu nền theo trạng thái
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    isConnected ? 'Connected' : 'Disconnected',
+                    isConnectedDashboard ? 'Connected' : 'Disconnected',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
