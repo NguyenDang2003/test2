@@ -1,38 +1,14 @@
 import 'package:flutter/material.dart';
-import 'about_us.dart';
-import 'simulate_page.dart';
-import 'can_page.dart';
-import 'data_stream.dart';
-import 'can_door.dart';
-import 'online_service.dart';
+import 'variables.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
   @override
-  _MainScreenState createState() => _MainScreenState();
+  MainScreenState createState() => MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
-  int _selectedIndex = 0;
-
-  final List<String> _titles = [
-    "SIMULATE",
-    "CAN DASHBOARD",
-    "CAN DOOR",
-    "DATA STREAM",
-    "ABOUT US",
-    "ONLINE SERVICE",
-  ];
-  final List<Widget> _pages = [
-    SimulatePage(),
-    CanPage(),
-    CanDoor(),
-    DataStreamPage(),
-    AboutUsPage(),
-    OnlineService(),
-  ];
-
+class MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -76,7 +52,7 @@ class _MainScreenState extends State<MainScreen> {
                           ),
                         ),
                       ),
-                      Container(
+                      SizedBox(
                         height: 40,
                         child: ElevatedButton(
                           onPressed: () {},
@@ -103,9 +79,7 @@ class _MainScreenState extends State<MainScreen> {
                           color: Colors.red,
                           size: 32,
                         ),
-                        onPressed: () {
-                          print("Account pressed");
-                        },
+                        onPressed: () {},
                       ),
                     ],
                   ),
@@ -115,14 +89,14 @@ class _MainScreenState extends State<MainScreen> {
                 Expanded(
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(_titles.length, (index) {
+                    children: List.generate(titles.length, (index) {
                       return Expanded(
                         child: _buildNavItem(
-                          title: _titles[index],
-                          isSelected: _selectedIndex == index,
+                          title: titles[index],
+                          isSelected: selectedIndex == index,
                           onTap: () {
                             setState(() {
-                              _selectedIndex = index;
+                              selectedIndex = index;
                             });
                           },
                         ),
@@ -135,7 +109,7 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ),
       ),
-      body: _pages[_selectedIndex],
+      body: pages[selectedIndex],
     );
   }
 

@@ -1,6 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 import 'pages/main_ui.dart';
+// import 'package:process_run/process_run.dart';
+import 'dart:io';
+
+void startBackend() async {
+  String scriptPath = '${Directory.current.path}/backend/candoor_be.py';
+
+  if (Platform.isWindows) {
+    await Process.start('python', [scriptPath]);
+  } else if (Platform.isMacOS || Platform.isLinux) {
+    await Process.start('python3', [scriptPath]);
+  }
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,7 +27,7 @@ void main() async {
     await windowManager.setResizable(true);
     await windowManager.show();
   });
-
+  startBackend(); // Chạy backend khi app khởi động
   runApp(const MyApp());
 }
 

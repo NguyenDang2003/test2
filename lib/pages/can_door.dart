@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:test_toolbar/pages/variables.dart';
+// import 'package:http/http.dart' as http;
 
 class CanDoor extends StatefulWidget {
+  const CanDoor({super.key});
   @override
-  _CanDoorStage createState() => _CanDoorStage();
+  CanDoorStage createState() => CanDoorStage();
 }
 
-class _CanDoorStage extends State<CanDoor> {
+class CanDoorStage extends State<CanDoor> {
   // Trạng thái của đèn cảnh báo
-  bool isConnected = false; // Giá trị này sẽ được cập nhật từ backend
+  // Giá trị này sẽ được cập nhật từ backend
 
   @override
   Widget build(BuildContext context) {
@@ -53,13 +56,13 @@ class _CanDoorStage extends State<CanDoor> {
                   padding: EdgeInsets.symmetric(vertical: 4, horizontal: 8),
                   decoration: BoxDecoration(
                     color:
-                        isConnected
+                        isConnectedCarDoor
                             ? Colors.green
                             : Colors.red, // Màu nền theo trạng thái
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    isConnected ? 'Connected' : 'Disconnected',
+                    isConnectedCarDoor ? 'Connected' : 'Disconnected',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
@@ -71,9 +74,25 @@ class _CanDoorStage extends State<CanDoor> {
                   children: [
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: () {
-                          // Thực hiện kết nối
-                        },
+                        onPressed: () async {
+                          // var url = Uri.parse(
+                          //   'http://127.0.0.1:5000/connect',
+                          // ); // Kết nối localhost
+                          // try {
+                          //   print("Đang gửi yêu cầu...");
+                          //   var response = await http.post(url);
+                          //   if (response.statusCode == 200) {
+                          //     print('Connected to backend!');
+                          //   } else {
+                          //     print(
+                          //       'Failed to connect: ${response.statusCode}',
+                          //     );
+                          //     print("Nội dung: ${response.body}");
+                          //   }
+                          // } catch (e) {
+                          //   print('Error: $e');
+                          // }
+                        }, // Thực hiện kết nối
                         style: ElevatedButton.styleFrom(
                           foregroundColor: Colors.white,
                           backgroundColor: Colors.green,
