@@ -1,7 +1,6 @@
 import spidev
 import time
 import numpy as np
-import sinewave
 
 # Cấu hình SPI
 spi = spidev.SpiDev()
@@ -17,11 +16,6 @@ def send_to_dac(value):
 
 # Thông số sóng sin
 frequency = 10  # Hz
-sampling_rate = 1000  # Số mẫu mỗi giây
-amplitude = 2047  # Biên độ (tương đương 3.3V)
-offset = 2048  # Dịch lên để giá trị luôn dương
-
-frequency = 1/T  # Hz
 sampling_rate = 1000  # Số mẫu mỗi giây
 amplitude = 2047  # Biên độ (tương đương 3.3V)
 offset = 2048  # Dịch lên để giá trị luôn dương
