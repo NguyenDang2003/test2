@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'dart:math';
 
 class GraphAna4 extends StatelessWidget {
+  const GraphAna4({super.key});
+
   // Hàm tạo dữ liệu xung sine
   List<FlSpot> generateSineWave({
     int points = 100,

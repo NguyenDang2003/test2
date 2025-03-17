@@ -3,13 +3,15 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 class GraphEnginespeed extends StatefulWidget {
+  const GraphEnginespeed({super.key});
+
   @override
   _GraphScreenState createState() => _GraphScreenState();
 }
 
 class _GraphScreenState extends State<GraphEnginespeed> {
   // Danh sách chứa các điểm dữ liệu trên đồ thị
-  List<FlSpot> _dataPoints = List.generate(
+  final List<FlSpot> _dataPoints = List.generate(
     50,
     (index) => FlSpot(index.toDouble(), 0),
   );

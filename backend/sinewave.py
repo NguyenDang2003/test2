@@ -3,8 +3,14 @@ import threading
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import spidev
+import time
 
 app = Flask(__name__)
+
+spi = spidev.SpiDev()
+spi.open(0, 0)  # SPI bus 0, device 0 (CE0)
+spi.max_speed_hz = 1000000  # 1 MHz
 
 # Biến toàn cục lưu dữ liệu động cơ
 engine_speed = 1000  # Tốc độ động cơ (rpm)
@@ -31,7 +37,7 @@ ax.grid()
 def update_graph(frame):
     global x_data, y_data, t, z, engine_speed, teeth, gap_teeth
 
-    new_x = np.linspace(t, t + 0.005, 100)
+    new_x = np.linspace(t, t + 0.005, 1000)
     T = 1 / (engine_speed / 60 * teeth)  # Chu kỳ của sóng sin theo tốc độ động cơ
 
     if z % teeth < gap_teeth:
@@ -81,3 +87,20 @@ flask_thread.start()
 
 # Hiển thị đồ thị
 plt.show(block = False)
+
+def send_to_dac(value):
+    value = int(value) & 0xFFF  # Giới hạn 12-bit
+    high_byte = (0x30 | (value >> 8)) & 0xFF  # Cấu hình MCP4921
+    low_byte = value & 0xFF
+    spi.xfer2([high_byte, low_byte])  # Gửi dữ liệu
+
+try:
+    while True:
+        for i in range(1000):
+            angel = np.new_x
+            sine_value = np.new_y
+            send_to_dac(sine_value)
+            time.sleep(1 / 1000)
+except KeyboardInterrupt:
+    spi.close()
+    print("SPI Closed")
