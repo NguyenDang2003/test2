@@ -66,7 +66,7 @@ def update_engine_data():
     data = request.get_json()
     
     if "speed" in data and "teeth" in data and "gapTeeth" in data:
-        engine_speed = float(data["speed"])
+        engine_speed = int(data["speed"])
         teeth = int(data["teeth"])
         gap_teeth = int(data["gapTeeth"])
         
@@ -91,3 +91,6 @@ generate_waveform()
 # Chạy luồng SPI
 spi_thread = threading.Thread(target=spi_loop, daemon=True)
 spi_thread.start()
+
+while True:
+    time.sleep(1)
