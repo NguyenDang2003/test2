@@ -19,7 +19,7 @@ gap_teeth = 0        # Số răng khuyết
 
 # Biến lưu dữ liệu để vẽ đồ thị
 x_data = np.array([])
-y_data = np.array([])
+y_data = np.array([])  # 🚀 Dữ liệu này sẽ được dùng để gửi SPI
 t = 0
 z = 0
 fig, ax = plt.subplots()
@@ -49,7 +49,7 @@ def update_graph(frame):
         z += 1
 
     x_data = np.append(x_data, new_x)
-    y_data = np.append(y_data, new_y)
+    y_data = new_y  # 🚀 Lưu lại dữ liệu để gửi SPI
     t += 0.005  
 
     line.set_data(x_data, y_data)
@@ -99,15 +99,14 @@ def send_to_dac(value):
     except Exception as e:
         print(f"SPI Error: {e}")
 
-try:
+# Chạy luồng gửi SPI song song
+def spi_loop():
+    global y_data
     while True:
-        new_x = np.linspace(t, t + 0.005, 1000)
-        T = 1 / (engine_speed / 60 * teeth)
-        new_y = np.sin(2 * np.pi * (1 / T) * new_x)
+        if len(y_data) > 0:
+            for i in range(len(y_data)):
+                send_to_dac(y_data[i])
+                time.sleep(1 / 1000)
 
-        for i in range(1000):
-            send_to_dac(new_y[i])
-            time.sleep(1 / 1000)
-except KeyboardInterrupt:
-    spi.close()
-    print("SPI Closed")
+spi_thread = threading.Thread(target=spi_loop, daemon=True)
+spi_thread.start()
