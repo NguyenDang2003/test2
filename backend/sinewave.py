@@ -27,6 +27,8 @@ def generate_waveform():
     
     samples_per_tooth = 1000  # Số điểm dữ liệu trên mỗi răng
     T = 1 / (engine_speed / 60 * teeth)  # Chu kỳ của 1 răng
+    print(f"Generating waveform with T = {T:.6f} s (engine speed = {engine_speed} rpm)")  # Kiểm tra giá trị
+    
     time_values = np.linspace(0, T, samples_per_tooth, endpoint=False)
     
     for tooth in range(teeth):
@@ -52,6 +54,8 @@ def send_to_dac(value):
 def spi_loop():
     global spi_buffer, engine_speed, teeth
     while True:
+        generate_waveform()
+
         if len(spi_buffer) > 0:
             T = 1 / (engine_speed / 60 * teeth)  # Chu kỳ của 1 răng
             delay = T / 1000  # Điều chỉnh tốc độ gửi SPI
