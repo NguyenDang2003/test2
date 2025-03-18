@@ -12,82 +12,35 @@ spi = spidev.SpiDev()
 spi.open(0, 0)  # SPI bus 0, device 0 (CE0)
 spi.max_speed_hz = 1000000  # 1 MHz
 
-# Biến toàn cục
-engine_speed = 1000  # rpm
-teeth = 36
-gap_teeth = 0
-z = 0  # Đánh dấu răng hiện tại
-spi_buffer = []  # Lưu trữ dữ liệu gửi SPI
+# Biến toàn cục lưu dữ liệu động cơ
+engine_speed = 1500  # Tốc độ động cơ (rpm)
+teeth = 36           # Số răng lý tưởng
+gap_teeth = 4        # Số răng khuyết
 
-# Biến đồ thị
-x_data = np.array([])
-y_data = np.array([])
-t = 0
-fig, ax = plt.subplots()
-line, = ax.plot([], [], lw=2)
+# Bộ đệm dữ liệu để gửi SPI
+spi_buffer = []
 
-ax.set_ylim(-1.2, 1.2)
-ax.set_xlim(0, 0.01)  
-ax.set_xlabel("Thời gian (s)")
-ax.set_ylabel("Biên độ")
-ax.set_title("Sóng Sin động")
-ax.grid()
-
-# Hàm cập nhật dữ liệu trên đồ thị
-def update_graph(frame):
-    global x_data, y_data, spi_buffer, t, z, engine_speed, teeth, gap_teeth
-
-    T = 1 / (engine_speed / 60 * teeth)  # Chu kỳ của 1 răng
-    new_x = np.linspace(t, t + T, 1000)
-
-    if z % teeth < gap_teeth:
-        new_y = np.zeros_like(new_x)  # Xung răng khuyết
-    else:
-        new_y = np.sin(2 * np.pi * (1 / T) * new_x)  # Xung sine
-
-    # Cập nhật đồ thị
-    x_data = np.append(x_data, new_x)
-    y_data = np.append(y_data, new_y)
-
-    # Cập nhật buffer SPI
-    spi_buffer = list(new_y)
-
-    t += T  # Cập nhật thời gian
-    z = (z + 1) % teeth  # Chuyển sang răng tiếp theo
-
-    line.set_data(x_data, y_data)
-    ax.set_xlim(t - 0.01, t)
+def generate_waveform():
+    """Tạo dữ liệu sóng sine cho mỗi chu kỳ của răng."""
+    global spi_buffer, engine_speed, teeth, gap_teeth
+    spi_buffer.clear()
     
-    return line,
-
-# Animation
-ani = animation.FuncAnimation(fig, update_graph, interval=10)
-
-@app.route('/update_engine_data', methods=['POST'])
-def update_engine_data():
-    global engine_speed, teeth, gap_teeth
-    data = request.get_json()
-
-    if "speed" in data and "teeth" in data and "gapTeeth" in data:
-        engine_speed = float(data["speed"])
-        teeth = int(data["teeth"])
-        gap_teeth = int(data["gapTeeth"])
-        return jsonify({"message": "Data updated"})
-
-    return jsonify({"error": "Invalid request"}), 400
-
-def run_flask():
-    app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
-
-flask_thread = threading.Thread(target=run_flask, daemon=True)
-flask_thread.start()
-
-plt.show(block=False)
+    samples_per_tooth = 1000  # Số điểm dữ liệu trên mỗi răng
+    T = 1 / (engine_speed / 60 * teeth)  # Chu kỳ của 1 răng
+    time_values = np.linspace(0, T, samples_per_tooth, endpoint=False)
+    
+    for tooth in range(teeth):
+        if tooth < gap_teeth:  # Răng khuyết
+            spi_buffer.extend([0] * samples_per_tooth)
+        else:  # Răng có sóng sine
+            sine_wave = np.sin(2 * np.pi / T * time_values)
+            spi_buffer.extend(sine_wave)
 
 def send_to_dac(value):
-    """ Chuyển giá trị [-1,1] thành tín hiệu DAC 12-bit """
-    value = int((value + 1) * 2047.5)  
-    high_byte = (0x30 | (value >> 8)) & 0xFF  
+    """Gửi giá trị đến DAC MCP4921 qua SPI."""
+    value = int((value + 1) * 2047.5)  # Chuyển [-1,1] thành [0, 4095]
+    value = value & 0xFFF  # Giới hạn 12-bit
+    high_byte = (0x30 | (value >> 8)) & 0xFF  # Cấu hình MCP4921
     low_byte = value & 0xFF
     
     try:
@@ -107,5 +60,34 @@ def spi_loop():
                 send_to_dac(value)
                 time.sleep(delay)
 
+@app.route('/update_engine_data', methods=['POST'])
+def update_engine_data():
+    global engine_speed, teeth, gap_teeth
+    data = request.get_json()
+    
+    if "speed" in data and "teeth" in data and "gapTeeth" in data:
+        engine_speed = float(data["speed"])
+        teeth = int(data["teeth"])
+        gap_teeth = int(data["gapTeeth"])
+        
+        generate_waveform()  # Cập nhật lại sóng sine
+        
+        print(f"Updated: Speed = {engine_speed} rpm, Teeth = {teeth}, GapTeeth = {gap_teeth}")
+        return jsonify({"message": "Data updated", "speed": engine_speed, "teeth": teeth, "gapTeeth": gap_teeth})
+    
+    return jsonify({"error": "Invalid request"}), 400
+
+# Chạy Flask server trong luồng riêng
+def run_flask():
+    app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
+
+flask_thread = threading.Thread(target=run_flask)
+flask_thread.daemon = True
+flask_thread.start()
+
+# Khởi tạo dữ liệu ban đầu
+generate_waveform()
+
+# Chạy luồng SPI
 spi_thread = threading.Thread(target=spi_loop, daemon=True)
 spi_thread.start()
