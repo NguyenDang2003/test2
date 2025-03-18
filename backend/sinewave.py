@@ -37,6 +37,8 @@ def generate_waveform():
         else:  # Răng có sóng sine
             sine_wave = np.sin(2 * np.pi / T * time_values)
             spi_buffer.extend(sine_wave)
+    
+    print(f"Generated waveform: {len(spi_buffer)} samples")
 
 def send_to_dac(value):
     """Gửi giá trị đến DAC MCP4921 qua SPI."""
@@ -58,8 +60,8 @@ def spi_loop():
 
         if len(spi_buffer) > 0:
             T = 1 / (engine_speed / 60 * teeth)  # Chu kỳ của 1 răng
-            delay = T / 1000  # Điều chỉnh tốc độ gửi SPI
-
+            delay = T/len(spi_buffer)  # Điều chỉnh tốc độ gửi SPI
+            print(f"SPI sending: delay={delay:.6f}s, T={T:.6f}s, samples={total_samples}")
             for value in spi_buffer:
                 send_to_dac(value)
                 time.sleep(delay)
