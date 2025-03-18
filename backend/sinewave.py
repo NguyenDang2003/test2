@@ -55,16 +55,24 @@ def send_to_dac(value):
 # Chạy luồng gửi SPI song song
 def spi_loop():
     global spi_buffer, engine_speed, teeth
+    last_speed = engine_speed  # Lưu tốc độ cũ
+    last_teeth = teeth
+    
     while True:
-        generate_waveform()
+        if last_speed != engine_speed or last_teeth != teeth:
+            generate_waveform()
+            last_speed = engine_speed
+            last_teeth = teeth
 
         if len(spi_buffer) > 0:
             T = 1 / (engine_speed / 60 * teeth)  # Chu kỳ của 1 răng
-            delay = T/len(spi_buffer)  # Điều chỉnh tốc độ gửi SPI
-            print(f"SPI sending: delay={delay:.6f}s, T={T:.6f}s, samples={total_samples}")
+            delay = T / len(spi_buffer)  # Điều chỉnh tốc độ gửi SPI
+            print(f"SPI sending: delay={delay:.6f}s, T={T:.6f}s")
+
             for value in spi_buffer:
                 send_to_dac(value)
                 time.sleep(delay)
+
 
 @app.route('/update_engine_data', methods=['POST'])
 def update_engine_data():
