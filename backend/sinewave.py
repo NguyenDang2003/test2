@@ -38,8 +38,8 @@ def generate_waveform():
 
 def send_to_dac(value):
     """Gửi giá trị đến DAC MCP4921 qua SPI."""
-    value = int((value + 1) * 2047.5)  # Chuyển [-1,1] thành [0, 4095]
-    value = value & 0xFFF  # Giới hạn 12-bit
+    value = int((value + 1)/2 * 4095)  # Chuyển [-1,1] thành [0, 4095]
+    value = max(0, min(4095, value))  # Đảm bảo nằm trong khoảng hợp lệ
     high_byte = (0x30 | (value >> 8)) & 0xFF  # Cấu hình MCP4921
     low_byte = value & 0xFF
     
