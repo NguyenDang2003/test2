@@ -3,81 +3,108 @@ import threading
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import spidev
+import time
 
 app = Flask(__name__)
 
+spi = spidev.SpiDev()
+spi.open(0, 0)  # SPI bus 0, device 0 (CE0)
+spi.max_speed_hz = 1000000  # 1 MHz
+
 # Biến toàn cục lưu dữ liệu động cơ
-engine_speed = 1000  # Tốc độ động cơ (rpm)
+engine_speed = 1500  # Tốc độ động cơ (rpm)
 teeth = 36           # Số răng lý tưởng
-gap_teeth = 0        # Số răng khuyết
+gap_teeth = 4        # Số răng khuyết
 
-# Biến lưu dữ liệu để vẽ đồ thị
-x_data = np.array([])
-y_data = np.array([])
-t = 0
-z = 0
-fig, ax = plt.subplots()
-line, = ax.plot([], [], lw=2)
+# Bộ đệm dữ liệu để gửi SPI
+spi_buffer = []
 
-# Cấu hình đồ thị
-ax.set_ylim(-1.2, 1.2)
-ax.set_xlim(0, 0.01)  
-ax.set_xlabel("Thời gian (s)")
-ax.set_ylabel("Biên độ")
-ax.set_title("Sóng Sin động")
-ax.grid()
-
-# Hàm cập nhật dữ liệu trên đồ thị
-def update_graph(frame):
-    global x_data, y_data, t, z, engine_speed, teeth, gap_teeth
-
-    new_x = np.linspace(t, t + 0.005, 100)
-    T = 1 / (engine_speed / 60 * teeth)  # Chu kỳ của sóng sin theo tốc độ động cơ
-
-    if z % teeth < gap_teeth:
-        new_y = np.zeros_like(new_x)
-    else:
-        new_y = np.sin(2 * np.pi * (1 / T) * new_x)
-
-    if np.all(new_y == 0):
-        z += 1
-
-    x_data = np.append(x_data, new_x)
-    y_data = np.append(y_data, new_y)
-    t += 0.005  
-
-    line.set_data(x_data, y_data)
-    ax.set_xlim(t - 0.005, t)
+def generate_waveform():
+    """Tạo dữ liệu sóng sine cho mỗi chu kỳ của răng."""
+    global spi_buffer, engine_speed, teeth, gap_teeth
+    spi_buffer.clear()
     
-    return line,
+    samples_per_tooth = 1000  # Số điểm dữ liệu trên mỗi răng
+    T = 1 / (engine_speed / 60 * teeth)  # Chu kỳ của 1 răng
+    print(f"Generating waveform with T = {T:.6f} s (engine speed = {engine_speed} rpm)")  # Kiểm tra giá trị
+    
+    time_values = np.linspace(0, T, samples_per_tooth, endpoint=False)
+    
+    for tooth in range(teeth):
+        if tooth < gap_teeth:  # Răng khuyết
+            spi_buffer.extend([0] * samples_per_tooth)
+        else:  # Răng có sóng sine
+            sine_wave = np.sin(2 * np.pi / T * time_values)
+            spi_buffer.extend(sine_wave)
+    
+    print(f"Generated waveform: {len(spi_buffer)} samples")
 
-# Tạo animation
-ani = animation.FuncAnimation(fig, update_graph, interval=10)
+def send_to_dac(value):
+    """Gửi giá trị đến DAC MCP4921 qua SPI."""
+    value = int((value + 1)/2 * 4095)  # Chuyển [-1,1] thành [0, 4095]
+    value = max(0, min(4095, value))  # Đảm bảo nằm trong khoảng hợp lệ
+    high_byte = (0x30 | (value >> 8)) & 0xFF  # Cấu hình MCP4921
+    low_byte = value & 0xFF
+    
+    try:
+        spi.xfer2([high_byte, low_byte])
+    except Exception as e:
+        print(f"SPI Error: {e}")
 
-# API nhận dữ liệu từ Flutter
+# Chạy luồng gửi SPI song song
+def spi_loop():
+    global spi_buffer, engine_speed, teeth
+    last_speed = engine_speed  # Lưu tốc độ cũ
+    last_teeth = teeth
+    
+    while True:
+        if last_speed != engine_speed or last_teeth != teeth:
+            generate_waveform()
+            last_speed = engine_speed
+            last_teeth = teeth
+
+        if len(spi_buffer) > 0:
+            T = 1 / (engine_speed / 60 * teeth)  # Chu kỳ của 1 răng
+            delay = T / len(spi_buffer)  # Điều chỉnh tốc độ gửi SPI
+            print(f"SPI sending: delay={delay:.6f}s, T={T:.6f}s")
+
+            for value in spi_buffer:
+                send_to_dac(value)
+                time.sleep(delay)
+
+
 @app.route('/update_engine_data', methods=['POST'])
 def update_engine_data():
     global engine_speed, teeth, gap_teeth
     data = request.get_json()
-
+    
     if "speed" in data and "teeth" in data and "gapTeeth" in data:
-        engine_speed = float(data["speed"])
+        engine_speed = int(data["speed"])
         teeth = int(data["teeth"])
         gap_teeth = int(data["gapTeeth"])
-
+        
+        generate_waveform()  # Cập nhật lại sóng sine
+        
         print(f"Updated: Speed = {engine_speed} rpm, Teeth = {teeth}, GapTeeth = {gap_teeth}")
         return jsonify({"message": "Data updated", "speed": engine_speed, "teeth": teeth, "gapTeeth": gap_teeth})
-
+    
     return jsonify({"error": "Invalid request"}), 400
 
 # Chạy Flask server trong luồng riêng
 def run_flask():
     app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
 
-# Chạy Flask server song song với đồ thị
 flask_thread = threading.Thread(target=run_flask)
 flask_thread.daemon = True
 flask_thread.start()
 
-# Hiển thị đồ thị
-plt.show(block = False)
+# Khởi tạo dữ liệu ban đầu
+generate_waveform()
+
+# Chạy luồng SPI
+spi_thread = threading.Thread(target=spi_loop, daemon=True)
+spi_thread.start()
+
+while True:
+    time.sleep(1)
