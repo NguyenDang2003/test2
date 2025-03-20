@@ -16,15 +16,13 @@ teeth = 36           # Số răng
 gap_teeth = 0        # Số răng khuyết
 
 # Số mẫu trên mỗi răng
-samples_per_tooth = 1000
+samples_per_tooth = 100
 
 def send_to_dac(value):
     """Gửi giá trị đến DAC MCP4921 qua SPI."""
-    value = (value + 1) / 2  # Chuyển [-1,1] thành [0,1]
-    value = int(value * 4095)  # Chuyển thành dải 0 - 4095
-    value = max(0, min(4095, value))  # Đảm bảo không vượt quá phạm vi
-    
-    high_byte = (0x30 | (value >> 8)) & 0xFF  # Cấu hình MCP4921
+    value = int((value + 1) / 2 * 4095)  # Chuyển [-1,1] thành [0, 4095]
+    value = max(0, min(4095, value))  # Giới hạn trong khoảng hợp lệ
+    high_byte = (0x30 | (value >> 8)) & 0xFF  # MCP4921 config
     low_byte = value & 0xFF
     
     try:
@@ -34,12 +32,9 @@ def send_to_dac(value):
 
 def spi_loop():
     global engine_speed, teeth, gap_teeth
-
     last_speed = engine_speed
     last_teeth = teeth
-    last_gap_teeth = gap_teeth
-
-
+    last_gap_teeth = gap_teeth  # ⚠️ Thêm dòng này để tránh lỗi
     while True:
         # Tính toán lại chu kỳ của một răng
         T = 1 / (engine_speed / 60 * teeth)
@@ -57,14 +52,10 @@ def spi_loop():
                         send_to_dac(0)
                         time.sleep(dt)
                 else:  # Nếu là răng có sóng sine
-                    min_vl, max_vl = float('inf'), float('-inf')
                     for i in range(samples_per_tooth):
                         value = np.sin(omega * i * dt)  # Tạo giá trị sóng sine
-                        min_vl = min(min,value)
-                        max_vl = max(max,value)
                         send_to_dac(value)
                         time.sleep(dt)
-                    print(f"Min value: {min_vl}, Max value: {max_vl}")
 
             # Nếu có thay đổi thông số thì dừng vòng lặp để cập nhật lại
             if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
