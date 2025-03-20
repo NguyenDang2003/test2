@@ -57,10 +57,14 @@ def spi_loop():
                         send_to_dac(0)
                         time.sleep(dt)
                 else:  # Nếu là răng có sóng sine
+                    min_vl, max_vl = float('inf'), float('-inf')
                     for i in range(samples_per_tooth):
                         value = np.sin(omega * i * dt)  # Tạo giá trị sóng sine
+                        min_vl = min(min,value)
+                        max_vl = max(max,value)
                         send_to_dac(value)
                         time.sleep(dt)
+                    print(f"Min value: {min_vl}, Max value: {max_vl}")
 
             # Nếu có thay đổi thông số thì dừng vòng lặp để cập nhật lại
             if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
