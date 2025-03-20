@@ -3,31 +3,32 @@ import threading
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-import spidev
+from collections import deque
+# import spidev
 import time
 
 app = Flask(__name__)
 
-spi = spidev.SpiDev()
-spi.open(0, 0)  # SPI bus 0, device 0 (CE0)
-spi.max_speed_hz = 1000000  # 1 MHz
+# spi = spidev.SpiDev()
+# spi.open(0, 0)  # SPI bus 0, device 0 (CE0)
+# spi.max_speed_hz = 1000000  # 1 MHz
 
 # Biến toàn cục lưu dữ liệu động cơ
 engine_speed = 1000  # Tốc độ động cơ (rpm)
-teeth = 36           # Số răng lý tưởng
-gap_teeth = 0        # Số răng khuyết
+teeth = 36       # Số răng lý tưởng
+gap_teeth = 2      # Số răng khuyết
 
-# Biến lưu dữ liệu để vẽ đồ thị
-x_data = np.array([])
-y_data = np.array([])
+# Biến lưu dữ liệu để vẽ đồ thị - sử dụng deque để giới hạn kích thước
+max_points = 5000
+x_data = deque(maxlen=max_points)
+y_data = deque(maxlen=max_points)
 t = 0
-z = 0
 fig, ax = plt.subplots()
 line, = ax.plot([], [], lw=2)
 
 # Cấu hình đồ thị
 ax.set_ylim(-1.2, 1.2)
-ax.set_xlim(0, 0.01)  
+ax.set_xlim(0.01, 0.02)  
 ax.set_xlabel("Thời gian (s)")
 ax.set_ylabel("Biên độ")
 ax.set_title("Sóng Sin động")
@@ -35,30 +36,35 @@ ax.grid()
 
 # Hàm cập nhật dữ liệu trên đồ thị
 def update_graph(frame):
-    global x_data, y_data, t, z, engine_speed, teeth, gap_teeth
+    global x_data, y_data, t, engine_speed, teeth, gap_teeth
 
-    new_x = np.linspace(t, t + 0.005, 1000)
-    T = 1 / (engine_speed / 60 * teeth)  # Chu kỳ của sóng sin theo tốc độ động cơ
-
-    if z % teeth < gap_teeth:
+    T = 1 / (engine_speed / 60 * teeth)
+    
+    new_x = np.linspace(t, t + 0.001, 1000)  # Giảm số điểm từ 1000 xuống 100 để giảm tải
+    
+    # Tính toán vị trí trong chu kỳ răng - tối ưu hóa so với code ban đầu
+    z = int(t / T)
+    current_tooth = z % teeth
+    
+    # Tạo tín hiệu dựa trên vị trí răng
+    if current_tooth < gap_teeth:
         new_y = np.zeros_like(new_x)
     else:
         new_y = np.sin(2 * np.pi * (1 / T) * new_x)
+    
+    # Thêm dữ liệu mới vào deque
+    x_data.extend(new_x)
+    y_data.extend(new_y)
+    t += 0.001
 
-    if np.all(new_y == 0):
-        z += 1
-
-    x_data = np.append(x_data, new_x)
-    y_data = np.append(y_data, new_y)
-    t += 0.005  
-
-    line.set_data(x_data, y_data)
-    ax.set_xlim(t - 0.005, t)
+    # Cập nhật đồ thị
+    line.set_data(list(x_data), list(y_data))
+    ax.set_xlim(t - 0.01, t)
     
     return line,
 
-# Tạo animation
-ani = animation.FuncAnimation(fig, update_graph, interval=10)
+# Tạo animation với blit=True để tối ưu hóa hiệu suất
+ani = animation.FuncAnimation(fig, update_graph, interval=10, blit=True)
 
 # API nhận dữ liệu từ Flutter
 @app.route('/update_engine_data', methods=['POST'])
@@ -80,27 +86,19 @@ def update_engine_data():
 def run_flask():
     app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
 
-# Chạy Flask server song song với đồ thị
-flask_thread = threading.Thread(target=run_flask)
-flask_thread.daemon = True
-flask_thread.start()
-
-# Hiển thị đồ thị
-plt.show(block = False)
-
-def send_to_dac(value):
-    value = int(value) & 0xFFF  # Giới hạn 12-bit
-    high_byte = (0x30 | (value >> 8)) & 0xFF  # Cấu hình MCP4921
-    low_byte = value & 0xFF
-    spi.xfer2([high_byte, low_byte])  # Gửi dữ liệu
-
-try:
-    while True:
-        for i in range(1000):
-            angel = np.new_x
-            sine_value = np.new_y
-            send_to_dac(sine_value)
-            time.sleep(1 / 1000)
-except KeyboardInterrupt:
-    spi.close()
-    print("SPI Closed")
+# Điểm khởi đầu chương trình
+if __name__ == '__main__':
+    # Khởi chạy Flask trong luồng riêng
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True  # Đảm bảo luồng Flask sẽ tắt khi chương trình chính kết thúc
+    flask_thread.start()
+    
+    # Hiển thị thông báo khi server đã sẵn sàng
+    print("Flask server started on http://127.0.0.1:5000")
+    print("Engine simulation running. Press Ctrl+C to stop.")
+    
+    try:
+        # Chạy Matplotlib trong luồng chính
+        plt.show()
+    except KeyboardInterrupt:
+        print("Program terminated by user.")
