@@ -1,10 +1,8 @@
-from flask import Flask, request, jsonify
 import threading
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 import spidev
 import time
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
@@ -12,39 +10,19 @@ spi = spidev.SpiDev()
 spi.open(0, 0)  # SPI bus 0, device 0 (CE0)
 spi.max_speed_hz = 1000000  # 1 MHz
 
-# Biến toàn cục lưu dữ liệu động cơ
-engine_speed = 1500  # Tốc độ động cơ (rpm)
-teeth = 36           # Số răng lý tưởng
-gap_teeth = 4        # Số răng khuyết
+# Biến toàn cục lưu thông số động cơ
+engine_speed = 1000  # Tốc độ động cơ (rpm)
+teeth = 36           # Số răng
+gap_teeth = 0        # Số răng khuyết
 
-# Bộ đệm dữ liệu để gửi SPI
-spi_buffer = []
-
-def generate_waveform():
-    """Tạo dữ liệu sóng sine cho mỗi chu kỳ của răng."""
-    global spi_buffer, engine_speed, teeth, gap_teeth
-    spi_buffer.clear()
-    
-    samples_per_tooth = 1000  # Số điểm dữ liệu trên mỗi răng
-    T = 1 / (engine_speed / 60 * teeth)  # Chu kỳ của 1 răng
-    print(f"Generating waveform with T = {T:.6f} s (engine speed = {engine_speed} rpm)")  # Kiểm tra giá trị
-    
-    time_values = np.linspace(0, T, samples_per_tooth, endpoint=False)
-    
-    for tooth in range(teeth):
-        if tooth < gap_teeth:  # Răng khuyết
-            spi_buffer.extend([0] * samples_per_tooth)
-        else:  # Răng có sóng sine
-            sine_wave = np.sin(2 * np.pi / T * time_values)
-            spi_buffer.extend(sine_wave)
-    
-    print(f"Generated waveform: {len(spi_buffer)} samples")
+# Số mẫu trên mỗi răng
+samples_per_tooth = 100
 
 def send_to_dac(value):
     """Gửi giá trị đến DAC MCP4921 qua SPI."""
-    value = int((value + 1)/2 * 4095)  # Chuyển [-1,1] thành [0, 4095]
-    value = max(0, min(4095, value))  # Đảm bảo nằm trong khoảng hợp lệ
-    high_byte = (0x30 | (value >> 8)) & 0xFF  # Cấu hình MCP4921
+    value = int((value + 1) / 2 * 4095)  # Chuyển [-1,1] thành [0, 4095]
+    value = max(0, min(4095, value))  # Giới hạn trong khoảng hợp lệ
+    high_byte = (0x30 | (value >> 8)) & 0xFF  # MCP4921 config
     low_byte = value & 0xFF
     
     try:
@@ -52,27 +30,36 @@ def send_to_dac(value):
     except Exception as e:
         print(f"SPI Error: {e}")
 
-# Chạy luồng gửi SPI song song
 def spi_loop():
-    global spi_buffer, engine_speed, teeth
-    last_speed = engine_speed  # Lưu tốc độ cũ
-    last_teeth = teeth
-    
+    global engine_speed, teeth, gap_teeth
+
     while True:
-        if last_speed != engine_speed or last_teeth != teeth:
-            generate_waveform()
-            last_speed = engine_speed
-            last_teeth = teeth
+        # Tính toán lại chu kỳ của một răng
+        T = 1 / (engine_speed / 60 * teeth)
+        dt = T / samples_per_tooth  # Khoảng thời gian giữa 2 mẫu
+        omega = 2 * np.pi / T  # Tần số góc
 
-        if len(spi_buffer) > 0:
-            T = 1 / (engine_speed / 60 * teeth)  # Chu kỳ của 1 răng
-            delay = T / len(spi_buffer)  # Điều chỉnh tốc độ gửi SPI
-            print(f"SPI sending: delay={delay:.6f}s, T={T:.6f}s")
+        print(f"Running SPI loop: Engine speed = {engine_speed}, Teeth = {teeth}, T = {T:.6f}s, dt = {dt:.6f}s")
 
-            for value in spi_buffer:
-                send_to_dac(value)
-                time.sleep(delay)
+        while True:
+            start_time = time.time()
 
+            for tooth in range(teeth):
+                if tooth < gap_teeth:  # Nếu là răng khuyết, gửi 0
+                    for _ in range(samples_per_tooth):
+                        send_to_dac(0)
+                        time.sleep(dt)
+                else:  # Nếu là răng có sóng sine
+                    for i in range(samples_per_tooth):
+                        value = np.sin(omega * i * dt)  # Tạo giá trị sóng sine
+                        send_to_dac(value)
+                        time.sleep(dt)
+
+            # Nếu có thay đổi thông số thì dừng vòng lặp để cập nhật lại
+            if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
+                break  # Cập nhật lại thông số và tính toán lại
+
+            last_speed, last_teeth, last_gap_teeth = engine_speed, teeth, gap_teeth
 
 @app.route('/update_engine_data', methods=['POST'])
 def update_engine_data():
@@ -84,8 +71,6 @@ def update_engine_data():
         teeth = int(data["teeth"])
         gap_teeth = int(data["gapTeeth"])
         
-        generate_waveform()  # Cập nhật lại sóng sine
-        
         print(f"Updated: Speed = {engine_speed} rpm, Teeth = {teeth}, GapTeeth = {gap_teeth}")
         return jsonify({"message": "Data updated", "speed": engine_speed, "teeth": teeth, "gapTeeth": gap_teeth})
     
@@ -95,12 +80,8 @@ def update_engine_data():
 def run_flask():
     app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
 
-flask_thread = threading.Thread(target=run_flask)
-flask_thread.daemon = True
+flask_thread = threading.Thread(target=run_flask, daemon=True)
 flask_thread.start()
-
-# Khởi tạo dữ liệu ban đầu
-generate_waveform()
 
 # Chạy luồng SPI
 spi_thread = threading.Thread(target=spi_loop, daemon=True)
