@@ -16,13 +16,15 @@ teeth = 36           # Số răng
 gap_teeth = 0        # Số răng khuyết
 
 # Số mẫu trên mỗi răng
-samples_per_tooth = 100
+samples_per_tooth = 1000
 
 def send_to_dac(value):
     """Gửi giá trị đến DAC MCP4921 qua SPI."""
-    value = int((value + 1) / 2 * 4095)  # Chuyển [-1,1] thành [0, 4095]
-    value = max(0, min(4095, value))  # Giới hạn trong khoảng hợp lệ
-    high_byte = (0x30 | (value >> 8)) & 0xFF  # MCP4921 config
+    value = (value + 1) / 2  # Chuyển [-1,1] thành [0,1]
+    value = int(value * 4095)  # Chuyển thành dải 0 - 4095
+    value = max(0, min(4095, value))  # Đảm bảo không vượt quá phạm vi
+    
+    high_byte = (0x30 | (value >> 8)) & 0xFF  # Cấu hình MCP4921
     low_byte = value & 0xFF
     
     try:
@@ -32,6 +34,11 @@ def send_to_dac(value):
 
 def spi_loop():
     global engine_speed, teeth, gap_teeth
+
+    last_speed = engine_speed
+    last_teeth = teeth
+    last_gap_teeth = gap_teeth
+
 
     while True:
         # Tính toán lại chu kỳ của một răng
@@ -57,9 +64,10 @@ def spi_loop():
 
             # Nếu có thay đổi thông số thì dừng vòng lặp để cập nhật lại
             if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
+                last_speed, last_teeth, last_gap_teeth = engine_speed, teeth, gap_teeth
                 break  # Cập nhật lại thông số và tính toán lại
 
-            last_speed, last_teeth, last_gap_teeth = engine_speed, teeth, gap_teeth
+            
 
 @app.route('/update_engine_data', methods=['POST'])
 def update_engine_data():
