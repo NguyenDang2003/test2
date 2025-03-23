@@ -39,39 +39,38 @@ def spi_loop():
     last_teeth = teeth
     last_gap_teeth = gap_teeth
 
-while True:
-    # Tính toán lại chu kỳ của một răng
-    T = 1 / (engine_speed / 60 * teeth)
-    dt = T / samples_per_tooth  # Khoảng thời gian giữa 2 mẫu
-    omega = 2 * np.pi / T  # Tần số góc
+    while True:
+        # Tính toán lại chu kỳ của một răng
+        f =  (engine_speed / 60 * teeth)
+        dt =  samples_per_tooth /f # Khoảng thời gian giữa 2 mẫu
+        samples_per_tooth = int(f)
+        print(f"Running SPI loop: Engine speed = {engine_speed}, Teeth = {teeth}, T = {T:.6f}s, dt = {dt:.6f}s")
 
-    print(f"Running SPI loop: Engine speed = {engine_speed}, Teeth = {teeth}, T = {T:.6f}s, dt = {dt:.6f}s")
+        cycle_start_time = time.time()  # Lưu thời điểm bắt đầu
 
-    cycle_start_time = time.time()  # Lưu thời điểm bắt đầu
+        for tooth in range(teeth):
+            for i in range(samples_per_tooth):
+                # Tính toán thời điểm chính xác để gửi mẫu
+                target_time = cycle_start_time + (tooth * samples_per_tooth + i) * dt
 
-    for tooth in range(teeth):
-        for i in range(samples_per_tooth):
-            # Tính toán thời điểm chính xác để gửi mẫu
-            target_time = cycle_start_time + (tooth * samples_per_tooth + i) * dt
+                if tooth < gap_teeth:  # Nếu là răng khuyết, gửi 0
+                    send_to_dac(0)
+                else:
+                    value = np.sin(2 * np.pi * f * 0.000001 * i)  # Tạo giá trị sóng sine
+                    send_to_dac(value)
 
-            if tooth < gap_teeth:  # Nếu là răng khuyết, gửi 0
-                send_to_dac(0)
-            else:
-                value = np.sin(omega * i * dt)  # Tạo giá trị sóng sine
-                send_to_dac(value)
+                # Chờ đến đúng thời gian mẫu tiếp theo
+                while time.time() < target_time:
+                    pass  # Giữ CPU chờ đến thời điểm thích hợp
 
-            # Chờ đến đúng thời gian mẫu tiếp theo
-            while time.time() < target_time:
-                pass  # Giữ CPU chờ đến thời điểm thích hợp
+            # Kiểm tra nếu tham số thay đổi
+            if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
+                break
 
-        # Kiểm tra nếu tham số thay đổi
-        if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
-            break
-
-    # Cập nhật tham số nếu có thay đổi
-    last_speed = engine_speed
-    last_teeth = teeth
-    last_gap_teeth = gap_teeth
+        # Cập nhật tham số nếu có thay đổi
+        last_speed = engine_speed
+        last_teeth = teeth
+        last_gap_teeth = gap_teeth
 
             
 
