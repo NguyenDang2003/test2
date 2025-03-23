@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 spi = spidev.SpiDev()
 spi.open(0, 0)  # SPI bus 0, device 0 (CE0)
-spi.max_speed_hz = 1000000  # 1 MHz
+spi.max_speed_hz = 16000000  # 1 MHz
 
 # Biến toàn cục lưu thông số động cơ
 engine_speed = 1000  # Tốc độ động cơ (rpm)
@@ -36,6 +36,7 @@ def send_to_dac(value):
 
 def spi_loop():
     global engine_speed, teeth, gap_teeth
+
     last_speed = engine_speed
     last_teeth = teeth
     last_gap_teeth = gap_teeth
@@ -48,32 +49,31 @@ def spi_loop():
 
         print(f"Running SPI loop: Engine speed = {engine_speed}, Teeth = {teeth}, T = {T:.6f}s, dt = {dt:.6f}s")
 
-        while True:
-            start_cycle = time.perf_counter_ns()  # Lấy mốc thời gian
+        cycle_start_time = time.time()  # Lưu thời điểm bắt đầu
 
-            for tooth in range(teeth):
+        for tooth in range(teeth):
+            for i in range(samples_per_tooth):
+                # Tính toán thời điểm chính xác để gửi mẫu
+                target_time = cycle_start_time + (tooth * samples_per_tooth + i) * dt
+
                 if tooth < gap_teeth:  # Nếu là răng khuyết, gửi 0
-                    for _ in range(samples_per_tooth):
-                        t_spi = send_to_dac(0)  # Lấy thời gian gửi SPI
-                        elapsed_time = (time.perf_counter_ns() - start_cycle) / 1e9
-                        remaining_time = dt - elapsed_time
-                        if remaining_time > 0:
-                            time.sleep(remaining_time)  # Chờ đúng thời gian
-                        start_cycle = time.perf_counter_ns()  # Cập nhật lại mốc thời gian
-                else:  # Nếu là răng có sóng sine
-                    for i in range(samples_per_tooth):
-                        value = np.sin(omega * i * dt)  # Tạo giá trị sóng sine
-                        t_spi = send_to_dac(value)  # Lấy thời gian gửi SPI
-                        elapsed_time = (time.perf_counter_ns() - start_cycle) / 1e9
-                        remaining_time = dt - elapsed_time
-                        if remaining_time > 0:
-                            time.sleep(remaining_time)  # Chờ đúng thời gian
-                        start_cycle = time.perf_counter_ns()  # Cập nhật lại mốc thời gian
+                    send_to_dac(0)
+                else:
+                    value = np.sin(omega * i * dt)  # Tạo giá trị sóng sine
+                    send_to_dac(value)
 
-            # Nếu có thay đổi thông số thì dừng vòng lặp để cập nhật lại
+                # Chờ đến đúng thời gian mẫu tiếp theo
+                while time.time() < target_time:
+                    pass  # Giữ CPU chờ đến thời điểm thích hợp
+
+            # Kiểm tra nếu tham số thay đổi
             if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
-                last_speed, last_teeth, last_gap_teeth = engine_speed, teeth, gap_teeth
-                break  # Cập nhật lại thông số và tính toán lại
+                break
+
+        # Cập nhật tham số nếu có thay đổi
+        last_speed = engine_speed
+        last_teeth = teeth
+        last_gap_teeth = gap_teeth
 
 @app.route('/update_engine_data', methods=['POST'])
 def update_engine_data():
