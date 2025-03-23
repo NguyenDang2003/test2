@@ -31,36 +31,66 @@ def send_to_dac(value):
         print(f"SPI Error: {e}")
 
 def spi_loop():
-    global engine_speed, teeth, gap_teeth
+    global engine_speed, teeth, gap_teeth, samples_per_tooth
     last_speed = engine_speed
     last_teeth = teeth
-    last_gap_teeth = gap_teeth  # ⚠️ Thêm dòng này để tránh lỗi
+    last_gap_teeth = gap_teeth
+    
+    # Precompute sine table
+    sine_table = np.sin(2 * np.pi * np.arange(samples_per_tooth) / samples_per_tooth)
+    
+    # Precompute zero samples for gap teeth
+    zero_samples = np.zeros(samples_per_tooth)
+    
     while True:
-        # Tính toán lại chu kỳ của một răng
+        # Tính toán lại các tham số
         T = 1 / (engine_speed / 60 * teeth)
-        dt = T / samples_per_tooth  # Khoảng thời gian giữa 2 mẫu
-        # omega = 2 * np.pi / T  # Tần số góc
+        dt = T / samples_per_tooth
+        
+        print(f"New params: speed={engine_speed}, T={T:.6f}, dt={dt:.6f}")
 
-        print(f"Running SPI loop: Engine speed = {engine_speed}, Teeth = {teeth}, T = {T:.6f}s, dt = {dt:.6f}s")
+        # Hàm sleep chính xác
+        def precise_sleep(duration):
+            end = time.perf_counter() + duration
+            while time.perf_counter() < end:
+                pass
 
-        while True:
-            start_time = time.time()
-
-            for tooth in range(teeth):
-                if tooth < gap_teeth:  # Nếu là răng khuyết, gửi 0
-                    for _ in range(0,samples_per_tooth,1):
-                        send_to_dac(0)
-                        time.sleep(dt)
-                else:  # Nếu là răng có sóng sine
-                    for i in range(0,samples_per_tooth,1):
-                        value = np.sin(2*np.pi * i /samples_per_tooth)  # Tạo giá trị sóng sine
-                        send_to_dac(value)
-                        time.sleep(dt)
-
-            # Nếu có thay đổi thông số thì dừng vòng lặp để cập nhật lại
-            if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
-                last_speed, last_teeth, last_gap_teeth = engine_speed, teeth, gap_teeth
-                break  # Cập nhật lại thông số và tính toán lại
+        # Lưu trạng thái hiện tại để phát hiện thay đổi
+        current_params = (engine_speed, teeth, gap_teeth)
+        
+        try:
+            while True:
+                start_tooth = time.perf_counter()
+                
+                for tooth in range(teeth):
+                    if tooth < gap_teeth:
+                        samples = zero_samples
+                    else:
+                        samples = sine_table
+                    
+                    start_sample = time.perf_counter()
+                    for i, sample in enumerate(samples):
+                        send_to_dac(sample)
+                        target_time = start_sample + (i + 1) * dt
+                        while time.perf_counter() < target_time:
+                            pass
+                    
+                    # Kiểm tra thay đổi sau mỗi răng
+                    if current_params != (engine_speed, teeth, gap_teeth):
+                        raise StopIteration
+                        
+                # Kiểm tra timing tổng thể
+                actual_duration = time.perf_counter() - start_tooth
+                if actual_duration > T * teeth:
+                    print(f"Timing warning: {actual_duration:.6f} > {T * teeth:.6f}")
+                
+        except StopIteration:
+            print("Parameter change detected, recalculating...")
+            last_speed, last_teeth, last_gap_teeth = engine_speed, teeth, gap_teeth
+            # Cập nhật lại bảng sine nếu cần
+            if samples_per_tooth != len(sine_table):
+                sine_table = np.sin(2 * np.pi * np.arange(samples_per_tooth) / samples_per_tooth)
+                zero_samples = np.zeros(samples_per_tooth)
 
             
 
