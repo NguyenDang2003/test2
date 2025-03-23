@@ -39,37 +39,31 @@ def spi_loop():
     last_teeth = teeth
     last_gap_teeth = gap_teeth
 
-    while True:
-        # Tính toán lại chu kỳ của một răng
-        T = 1 / (engine_speed / 60 * teeth)
-        dt = T / samples_per_tooth  # Khoảng thời gian giữa 2 mẫu
-        omega = 2 * np.pi / T  # Tần số góc
-        samples_per_tooth = 1/T
+while True:
+    T = 1 / (engine_speed / 60 * teeth)
+    dt = T / samples_per_tooth  # Khoảng thời gian giữa 2 mẫu
+    omega = 2 * np.pi / T  # Tần số góc
 
-        print(f"Running SPI loop: Engine speed = {engine_speed}, Teeth = {teeth}, T = {T:.6f}s, dt = {dt:.6f}s")
+    print(f"Running SPI loop: Engine speed = {engine_speed}, Teeth = {teeth}, T = {T:.6f}s, dt = {dt:.6f}s")
 
-        # Generate one complete revolution with accurate timing
-        
-        for tooth in range(teeth):
-            for i in range(samples_per_tooth):
-                
-                if tooth < gap_teeth:  # Nếu là răng khuyết, gửi 0
-                    send_to_dac(0)
-                    time.sleep(dt)
-                else:
-                    value = np.sin(2 * np.pi * 1/T * 0.000001*i )  # Tạo giá trị sóng sine
-                    send_to_dac(value)
-                    time.sleep(dt)  
-            
-            # Check for parameter changes after each tooth
-            if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
-                break
-        
-        # Update parameters if they've changed
+    for tooth in range(teeth):
+        for i in range(samples_per_tooth):
+            if tooth < gap_teeth:
+                send_to_dac(0)
+            else:
+                t = i * dt  # Đảm bảo t chạy từ 0 đến T
+                value = np.sin(2 * np.pi * t / T)
+                send_to_dac(value)
+
+            time.sleep(dt)  # Chờ đúng khoảng thời gian mẫu
+
         if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
-            last_speed = engine_speed
-            last_teeth = teeth
-            last_gap_teeth = gap_teeth
+            break
+
+    last_speed = engine_speed
+    last_teeth = teeth
+    last_gap_teeth = gap_teeth
+
             
 
 @app.route('/update_engine_data', methods=['POST'])
