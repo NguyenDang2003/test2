@@ -44,28 +44,23 @@ def spi_loop():
         T = 1 / (engine_speed / 60 * teeth)
         dt = T / samples_per_tooth  # Khoảng thời gian giữa 2 mẫu
         omega = 2 * np.pi / T  # Tần số góc
+        samples_per_tooth = 1/T
 
         print(f"Running SPI loop: Engine speed = {engine_speed}, Teeth = {teeth}, T = {T:.6f}s, dt = {dt:.6f}s")
 
         # Generate one complete revolution with accurate timing
-        cycle_start_time = time.time()
         
         for tooth in range(teeth):
             for i in range(samples_per_tooth):
-                # Calculate the exact time this sample should be generated
-                target_time = cycle_start_time + (tooth * samples_per_tooth + i) * dt
                 
                 if tooth < gap_teeth:  # Nếu là răng khuyết, gửi 0
                     send_to_dac(0)
-                else:  # Nếu là răng có sóng sine
-                    value = np.sin(2 * np.pi * i / engine_speed)  # Tạo giá trị sóng sine
-                    send_to_dac(value)
-                
-                # Wait precisely until next sample time
-                current_time = time.time()
-                sleep_time = target_time - current_time
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
+                    time.sleep(dt)
+                else:  
+                    for j in range((1/T)):# Nếu là răng có sóng sine
+                        value = np.sin(2 * np.pi * 1/T * 0.000001*j )  # Tạo giá trị sóng sine
+                        send_to_dac(value)
+                        time.sleep(dt)  
             
             # Check for parameter changes after each tooth
             if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
