@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 spi = spidev.SpiDev()
 spi.open(0, 0)  # SPI bus 0, device 0 (CE0)
-spi.max_speed_hz = 16000000  # 1 MHz
+spi.max_speed_hz = 16000000  # 16 MHz
 
 # Biến toàn cục lưu thông số động cơ
 engine_speed = 1000  # Tốc độ động cơ (rpm)
@@ -75,20 +75,6 @@ def spi_loop():
         last_teeth = teeth
         last_gap_teeth = gap_teeth
 
-@app.route('/update_engine_data', methods=['POST'])
-def update_engine_data():
-    global engine_speed, teeth, gap_teeth
-    data = request.get_json()
-    
-    if "speed" in data and "teeth" in data and "gapTeeth" in data:
-        engine_speed = int(data["speed"])
-        teeth = int(data["teeth"])
-        gap_teeth = int(data["gapTeeth"])
-        
-        print(f"Updated: Speed = {engine_speed} rpm, Teeth = {teeth}, GapTeeth = {gap_teeth}")
-        return jsonify({"message": "Data updated", "speed": engine_speed, "teeth": teeth, "gapTeeth": gap_teeth})
-    
-    return jsonify({"error": "Invalid request"}), 400
 
 # Chạy Flask server trong luồng riêng
 def run_flask():
