@@ -40,26 +40,35 @@ def spi_loop():
     last_gap_teeth = gap_teeth
 
 while True:
+    # Tính toán lại chu kỳ của một răng
     T = 1 / (engine_speed / 60 * teeth)
     dt = T / samples_per_tooth  # Khoảng thời gian giữa 2 mẫu
     omega = 2 * np.pi / T  # Tần số góc
 
     print(f"Running SPI loop: Engine speed = {engine_speed}, Teeth = {teeth}, T = {T:.6f}s, dt = {dt:.6f}s")
 
+    cycle_start_time = time.time()  # Lưu thời điểm bắt đầu
+
     for tooth in range(teeth):
         for i in range(samples_per_tooth):
-            if tooth < gap_teeth:
+            # Tính toán thời điểm chính xác để gửi mẫu
+            target_time = cycle_start_time + (tooth * samples_per_tooth + i) * dt
+
+            if tooth < gap_teeth:  # Nếu là răng khuyết, gửi 0
                 send_to_dac(0)
             else:
-                t = i * dt  # Đảm bảo t chạy từ 0 đến T
-                value = np.sin(2 * np.pi * t / T)
+                value = np.sin(omega * i * dt)  # Tạo giá trị sóng sine
                 send_to_dac(value)
 
-            time.sleep(dt)  # Chờ đúng khoảng thời gian mẫu
+            # Chờ đến đúng thời gian mẫu tiếp theo
+            while time.time() < target_time:
+                pass  # Giữ CPU chờ đến thời điểm thích hợp
 
+        # Kiểm tra nếu tham số thay đổi
         if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
             break
 
+    # Cập nhật tham số nếu có thay đổi
     last_speed = engine_speed
     last_teeth = teeth
     last_gap_teeth = gap_teeth
