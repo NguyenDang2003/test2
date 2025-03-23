@@ -58,7 +58,7 @@ def spi_loop():
                 if tooth < gap_teeth:  # Nếu là răng khuyết, gửi 0
                     send_to_dac(0)
                 else:  # Nếu là răng có sóng sine
-                    value = np.sin(omega * i * dt)  # Tạo giá trị sóng sine
+                    value = np.sin(2 * np.pi * i / engine_speed)  # Tạo giá trị sóng sine
                     send_to_dac(value)
                 
                 # Wait precisely until next sample time
