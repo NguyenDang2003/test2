@@ -79,15 +79,15 @@ while True:
 def update_engine_data():
     global engine_speed, teeth, gap_teeth
     data = request.get_json()
-    
+
     if "speed" in data and "teeth" in data and "gapTeeth" in data:
         engine_speed = int(data["speed"])
         teeth = int(data["teeth"])
         gap_teeth = int(data["gapTeeth"])
-        
+
         print(f"Updated: Speed = {engine_speed} rpm, Teeth = {teeth}, GapTeeth = {gap_teeth}")
         return jsonify({"message": "Data updated", "speed": engine_speed, "teeth": teeth, "gapTeeth": gap_teeth})
-    
+
     return jsonify({"error": "Invalid request"}), 400
 
 # Chạy Flask server trong luồng riêng
