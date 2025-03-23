@@ -16,7 +16,7 @@ teeth = 36           # Số răng
 gap_teeth = 0        # Số răng khuyết
 
 # Số mẫu trên mỗi răng
-samples_per_tooth = 1000
+samples_per_tooth = engine_speed
 
 def send_to_dac(value):
     """Gửi giá trị đến DAC MCP4921 qua SPI."""
