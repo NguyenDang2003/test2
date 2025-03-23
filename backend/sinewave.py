@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 spi = spidev.SpiDev()
 spi.open(0, 0)  # SPI bus 0, device 0 (CE0)
-spi.max_speed_hz = 16000000  # 16 MHz
+spi.max_speed_hz = 1000000  # 1 MHz
 
 # Biến toàn cục lưu thông số động cơ
 engine_speed = 1000  # Tốc độ động cơ (rpm)
@@ -16,7 +16,7 @@ teeth = 36           # Số răng
 gap_teeth = 0        # Số răng khuyết
 
 # Số mẫu trên mỗi răng
-samples_per_tooth = 100
+samples_per_tooth = 1000
 
 def send_to_dac(value):
     """Gửi giá trị đến DAC MCP4921 qua SPI."""
@@ -25,55 +25,44 @@ def send_to_dac(value):
     high_byte = (0x30 | (value >> 8)) & 0xFF  # MCP4921 config
     low_byte = value & 0xFF
     
-    start_spi = time.perf_counter_ns()
     try:
         spi.xfer2([high_byte, low_byte])
     except Exception as e:
         print(f"SPI Error: {e}")
-    end_spi = time.perf_counter_ns()
-
-    return (end_spi - start_spi) / 1e9  # Trả về thời gian SPI mất bằng giây
 
 def spi_loop():
     global engine_speed, teeth, gap_teeth
-
     last_speed = engine_speed
     last_teeth = teeth
-    last_gap_teeth = gap_teeth
-
+    last_gap_teeth = gap_teeth  # ⚠️ Thêm dòng này để tránh lỗi
     while True:
         # Tính toán lại chu kỳ của một răng
         T = 1 / (engine_speed / 60 * teeth)
         dt = T / samples_per_tooth  # Khoảng thời gian giữa 2 mẫu
-        omega = 2 * np.pi / T  # Tần số góc
+        # omega = 2 * np.pi / T  # Tần số góc
 
         print(f"Running SPI loop: Engine speed = {engine_speed}, Teeth = {teeth}, T = {T:.6f}s, dt = {dt:.6f}s")
 
-        cycle_start_time = time.perf_counter_ns()  # Lưu thời điểm bắt đầu
+        while True:
+            start_time = time.time()
 
-        for tooth in range(teeth):
-            for i in range(samples_per_tooth):
-                target_time = cycle_start_time + int((tooth * samples_per_tooth + i) * dt * 1e9)
+            for tooth in range(teeth):
+                if tooth < gap_teeth:  # Nếu là răng khuyết, gửi 0
+                    for _ in range(0,samples_per_tooth,1):
+                        send_to_dac(0)
+                        time.sleep(dt)
+                else:  # Nếu là răng có sóng sine
+                    for i in range(0,samples_per_tooth,1):
+                        value = np.sin(2*np.pi * i /samples_per_tooth)  # Tạo giá trị sóng sine
+                        send_to_dac(value)
+                        time.sleep(dt)
 
-                if tooth < gap_teeth:
-                    spi_time = send_to_dac(0)
-                else:
-                    value = np.sin(omega * i * dt)
-                    spi_time = send_to_dac(value)
-
-                # Đảm bảo gửi SPI không lâu hơn `dt`
-                while time.perf_counter_ns() < target_time:
-                    pass  # Chờ chính xác đến thời điểm mẫu tiếp theo
-
-            # Kiểm tra nếu tham số thay đổi
+            # Nếu có thay đổi thông số thì dừng vòng lặp để cập nhật lại
             if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
-                break
+                last_speed, last_teeth, last_gap_teeth = engine_speed, teeth, gap_teeth
+                break  # Cập nhật lại thông số và tính toán lại
 
-        # Cập nhật tham số nếu có thay đổi
-        last_speed = engine_speed
-        last_teeth = teeth
-        last_gap_teeth = gap_teeth
-
+            
 
 @app.route('/update_engine_data', methods=['POST'])
 def update_engine_data():
