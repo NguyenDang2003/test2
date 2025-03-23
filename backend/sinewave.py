@@ -1,32 +1,82 @@
-from flask import Flask, request, jsonify
+import threading
 import numpy as np
 import spidev
 import time
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# SPI setup
 spi = spidev.SpiDev()
 spi.open(0, 0)  # SPI bus 0, device 0 (CE0)
 spi.max_speed_hz = 1000000  # 1 MHz
 
-# Global variables
-engine_speed = 1500  # RPM
-teeth = 36           # Số răng lý tưởng
-gap_teeth = 4        # Số răng khuyết
-running = True
+# Biến toàn cục lưu thông số động cơ
+engine_speed = 1000  # Tốc độ động cơ (rpm)
+teeth = 36           # Số răng
+gap_teeth = 0        # Số răng khuyết
+
+# Số mẫu trên mỗi răng
+samples_per_tooth = 1000
 
 def send_to_dac(value):
     """Gửi giá trị đến DAC MCP4921 qua SPI."""
-    value = int((value + 1) / 2 * 4095)  # Chuyển [-1,1] thành [0, 4095]
-    value = max(0, min(4095, value))  # Đảm bảo nằm trong khoảng hợp lệ
-    high_byte = (0x30 | (value >> 8)) & 0xFF
+    value = (value + 1) / 2  # Chuyển [-1,1] thành [0,1]
+    value = int(value * 4095)  # Chuyển thành dải 0 - 4095
+    value = max(0, min(4095, value))  # Đảm bảo không vượt quá phạm vi
+    
+    high_byte = (0x30 | (value >> 8)) & 0xFF  # Cấu hình MCP4921
     low_byte = value & 0xFF
     
     try:
         spi.xfer2([high_byte, low_byte])
     except Exception as e:
         print(f"SPI Error: {e}")
+
+def spi_loop():
+    global engine_speed, teeth, gap_teeth
+
+    last_speed = engine_speed
+    last_teeth = teeth
+    last_gap_teeth = gap_teeth
+
+    while True:
+        # Tính toán lại chu kỳ của một răng
+        T = 1 / (engine_speed / 60 * teeth)
+        dt = T / samples_per_tooth  # Khoảng thời gian giữa 2 mẫu
+        omega = 2 * np.pi / T  # Tần số góc
+
+        print(f"Running SPI loop: Engine speed = {engine_speed}, Teeth = {teeth}, T = {T:.6f}s, dt = {dt:.6f}s")
+
+        # Generate one complete revolution with accurate timing
+        cycle_start_time = time.time()
+        
+        for tooth in range(teeth):
+            for i in range(samples_per_tooth):
+                # Calculate the exact time this sample should be generated
+                target_time = cycle_start_time + (tooth * samples_per_tooth + i) * dt
+                
+                if tooth < gap_teeth:  # Nếu là răng khuyết, gửi 0
+                    send_to_dac(0)
+                else:  # Nếu là răng có sóng sine
+                    value = np.sin(omega * i * dt)  # Tạo giá trị sóng sine
+                    send_to_dac(value)
+                
+                # Wait precisely until next sample time
+                current_time = time.time()
+                sleep_time = target_time - current_time
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+            
+            # Check for parameter changes after each tooth
+            if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
+                break
+        
+        # Update parameters if they've changed
+        if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
+            last_speed = engine_speed
+            last_teeth = teeth
+            last_gap_teeth = gap_teeth
+            
 
 @app.route('/update_engine_data', methods=['POST'])
 def update_engine_data():
@@ -43,67 +93,16 @@ def update_engine_data():
     
     return jsonify({"error": "Invalid request"}), 400
 
-# Chạy Flask trong một quá trình riêng
-from multiprocessing import Process
-
+# Chạy Flask server trong luồng riêng
 def run_flask():
     app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
 
-# Hàm chính để tạo và gửi tín hiệu
-def main():
-    global engine_speed, teeth, gap_teeth
-    
-    # Khởi tạo vị trí hiện tại
-    current_position = 0.0  # Vị trí góc (0-360 độ)
-    last_time = time.time()
-    
-    print("Engine simulator running...")
-    
-    try:
-        while True:
-            # Tính toán thời gian đã trôi qua
-            current_time = time.time()
-            elapsed = current_time - last_time
-            last_time = current_time
-            
-            # Tính toán vị trí góc mới dựa trên tốc độ động cơ
-            rps = engine_speed / 60.0  # Số vòng quay mỗi giây
-            angle_change = elapsed * rps * 360.0  # Thay đổi góc (độ)
-            current_position = (current_position + angle_change) % 360.0
-            
-            # Xác định răng hiện tại
-            total_teeth = teeth
-            current_tooth = int((current_position / 360.0) * total_teeth)
-            
-            # Xác định xem răng hiện tại có phải là răng khuyết hay không
-            is_gap_tooth = current_tooth < gap_teeth
-            
-            # Tạo giá trị đầu ra
-            if is_gap_tooth:
-                output_value = 0.0  # Răng khuyết - không có tín hiệu
-            else:
-                # Tính toán vị trí trong răng (0 đến 1)
-                tooth_angle = 360.0 / total_teeth
-                position_in_tooth = (current_position % tooth_angle) / tooth_angle
-                
-                # Tạo sóng sine cho răng này
-                output_value = np.sin(2 * np.pi * position_in_tooth)
-            
-            # Gửi giá trị đến DAC
-            send_to_dac(output_value)
-            
-            # Thời gian chờ nhỏ để không tải nặng CPU
-            time.sleep(0.001)
-            
-    except KeyboardInterrupt:
-        print("Shutting down...")
-        spi.close()
+flask_thread = threading.Thread(target=run_flask, daemon=True)
+flask_thread.start()
 
-if __name__ == "__main__":
-    # Khởi động Flask trong một quá trình riêng
-    flask_process = Process(target=run_flask)
-    flask_process.daemon = True
-    flask_process.start()
-    
-    # Chạy chức năng chính
-    main()
+# Chạy luồng SPI
+spi_thread = threading.Thread(target=spi_loop, daemon=True)
+spi_thread.start()
+
+while True:
+    time.sleep(1)
