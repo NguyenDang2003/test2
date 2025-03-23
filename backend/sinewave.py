@@ -16,7 +16,7 @@ teeth = 36           # Số răng
 gap_teeth = 0        # Số răng khuyết
 
 # Số mẫu trên mỗi răng
-samples_per_tooth = 1000
+samples_per_tooth = 100
 
 def send_to_dac(value):
     """Gửi giá trị đến DAC MCP4921 qua SPI."""
@@ -31,40 +31,47 @@ def send_to_dac(value):
         print(f"SPI Error: {e}")
 
 def spi_loop():
-    global engine_speed, teeth, gap_teeth, samples_per_tooth
-    last_speed = last_teeth = last_gap_teeth = None  # Khởi tạo biến theo dõi thay đổi
+    global engine_speed, teeth, gap_teeth
+    last_speed = engine_speed
+    last_teeth = teeth
+    last_gap_teeth = gap_teeth  # ⚠️ Thêm dòng này để tránh lỗi
 
     while True:
-        # Cập nhật thông số nếu có thay đổi
-        if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
-            last_speed, last_teeth, last_gap_teeth = engine_speed, teeth, gap_teeth
-            T = 1 / (engine_speed / 60 * teeth)  # Chu kỳ toàn bộ bánh răng
-            dt = T / samples_per_tooth  # Khoảng thời gian giữa 2 mẫu
-            omega = 2 * np.pi / T  # Tần số góc
+        # Tính toán lại chu kỳ của một răng
+        T = 1 / (engine_speed / 60 * teeth)
+        dt = T / samples_per_tooth  # Khoảng thời gian giữa 2 mẫu
+        omega = 2 * np.pi / T  # Tần số góc
 
-            print(f"Updated: Engine speed = {engine_speed}, Teeth = {teeth}, T = {T:.6f}s, dt = {dt:.6f}s")
+        print(f"Running SPI loop: Engine speed = {engine_speed}, Teeth = {teeth}, T = {T:.6f}s, dt = {dt:.6f}s")
 
-        # Bắt đầu vòng lặp xuất tín hiệu
-        for tooth in range(teeth):
-            start_time = time.perf_counter_ns()  # Lưu thời điểm bắt đầu
+        while True:
+            start_cycle = time.perf_counter()  # Bắt đầu đo thời gian vòng lặp
 
-            if tooth < gap_teeth:  # Răng khuyết -> Gửi 0
-                for _ in range(samples_per_tooth):
-                    send_to_dac(0)
-                    wait_until(start_time, dt)
-            else:  # Răng có xung sine
-                for i in range(samples_per_tooth):
-                    value = int((np.sin(omega * i * dt) * 2047) + 2048)  # Chuyển về DAC 12-bit (0 - 4095)
-                    send_to_dac(value)
-                    wait_until(start_time, dt)
+            for tooth in range(teeth):
+                if tooth < gap_teeth:  # Nếu là răng khuyết, gửi 0
+                    for _ in range(samples_per_tooth):
+                        send_to_dac(0)
+                        end_time = time.perf_counter()
+                        elapsed_time = end_time - start_cycle
+                        remaining_time = dt - elapsed_time
+                        if remaining_time > 0:
+                            time.sleep(remaining_time)  # Chờ đúng thời gian
+                        start_cycle = time.perf_counter()  # Cập nhật lại mốc thời gian
+                else:  # Nếu là răng có sóng sine
+                    for i in range(samples_per_tooth):
+                        value = np.sin(omega * i * dt)  # Tạo giá trị sóng sine
+                        send_to_dac(value)
+                        end_time = time.perf_counter()
+                        elapsed_time = end_time - start_cycle
+                        remaining_time = dt - elapsed_time
+                        if remaining_time > 0:
+                            time.sleep(remaining_time)  # Chờ đúng thời gian
+                        start_cycle = time.perf_counter()  # Cập nhật lại mốc thời gian
 
-def wait_until(start_time, delay):
-    """Chờ cho đến khi đủ thời gian delay từ start_time."""
-    target_time = start_time + int(delay * 1e9)  # Chuyển delay sang nano giây
-    while time.perf_counter_ns() < target_time:
-        pass  # Bận chờ để đảm bảo thời gian chính xác
-
-            
+            # Nếu có thay đổi thông số thì dừng vòng lặp để cập nhật lại
+            if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
+                last_speed, last_teeth, last_gap_teeth = engine_speed, teeth, gap_teeth
+                break  # Cập nhật lại thông số và tính toán lại
 
 @app.route('/update_engine_data', methods=['POST'])
 def update_engine_data():
