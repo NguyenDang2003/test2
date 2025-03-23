@@ -25,16 +25,20 @@ def send_to_dac(value):
     high_byte = (0x30 | (value >> 8)) & 0xFF  # MCP4921 config
     low_byte = value & 0xFF
     
+    start_spi = time.perf_counter_ns()
     try:
         spi.xfer2([high_byte, low_byte])
     except Exception as e:
         print(f"SPI Error: {e}")
+    end_spi = time.perf_counter_ns()
+
+    return (end_spi - start_spi) / 1e9  # Trả về thời gian SPI mất bằng giây
 
 def spi_loop():
     global engine_speed, teeth, gap_teeth
     last_speed = engine_speed
     last_teeth = teeth
-    last_gap_teeth = gap_teeth  # ⚠️ Thêm dòng này để tránh lỗi
+    last_gap_teeth = gap_teeth
 
     while True:
         # Tính toán lại chu kỳ của một răng
@@ -45,28 +49,26 @@ def spi_loop():
         print(f"Running SPI loop: Engine speed = {engine_speed}, Teeth = {teeth}, T = {T:.6f}s, dt = {dt:.6f}s")
 
         while True:
-            start_cycle = time.perf_counter()  # Bắt đầu đo thời gian vòng lặp
+            start_cycle = time.perf_counter_ns()  # Lấy mốc thời gian
 
             for tooth in range(teeth):
                 if tooth < gap_teeth:  # Nếu là răng khuyết, gửi 0
                     for _ in range(samples_per_tooth):
-                        send_to_dac(0)
-                        end_time = time.perf_counter()
-                        elapsed_time = end_time - start_cycle
+                        t_spi = send_to_dac(0)  # Lấy thời gian gửi SPI
+                        elapsed_time = (time.perf_counter_ns() - start_cycle) / 1e9
                         remaining_time = dt - elapsed_time
                         if remaining_time > 0:
                             time.sleep(remaining_time)  # Chờ đúng thời gian
-                        start_cycle = time.perf_counter()  # Cập nhật lại mốc thời gian
+                        start_cycle = time.perf_counter_ns()  # Cập nhật lại mốc thời gian
                 else:  # Nếu là răng có sóng sine
                     for i in range(samples_per_tooth):
                         value = np.sin(omega * i * dt)  # Tạo giá trị sóng sine
-                        send_to_dac(value)
-                        end_time = time.perf_counter()
-                        elapsed_time = end_time - start_cycle
+                        t_spi = send_to_dac(value)  # Lấy thời gian gửi SPI
+                        elapsed_time = (time.perf_counter_ns() - start_cycle) / 1e9
                         remaining_time = dt - elapsed_time
                         if remaining_time > 0:
                             time.sleep(remaining_time)  # Chờ đúng thời gian
-                        start_cycle = time.perf_counter()  # Cập nhật lại mốc thời gian
+                        start_cycle = time.perf_counter_ns()  # Cập nhật lại mốc thời gian
 
             # Nếu có thay đổi thông số thì dừng vòng lặp để cập nhật lại
             if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
