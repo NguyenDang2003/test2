@@ -16,7 +16,7 @@ teeth = 36           # Số răng
 gap_teeth = 0        # Số răng khuyết
 
 # Số mẫu trên mỗi răng
-samples_per_tooth = engine_speed
+samples_per_tooth = 1000
 
 def send_to_dac(value):
     """Gửi giá trị đến DAC MCP4921 qua SPI."""
@@ -56,11 +56,10 @@ def spi_loop():
                 if tooth < gap_teeth:  # Nếu là răng khuyết, gửi 0
                     send_to_dac(0)
                     time.sleep(dt)
-                else:  
-                    for j in range((1/T)):# Nếu là răng có sóng sine
-                        value = np.sin(2 * np.pi * 1/T * 0.000001*j )  # Tạo giá trị sóng sine
-                        send_to_dac(value)
-                        time.sleep(dt)  
+                else:
+                    value = np.sin(2 * np.pi * 1/T * 0.000001*i )  # Tạo giá trị sóng sine
+                    send_to_dac(value)
+                    time.sleep(dt)  
             
             # Check for parameter changes after each tooth
             if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
