@@ -49,22 +49,21 @@ def spi_loop():
 
         print(f"Running SPI loop: Engine speed = {engine_speed}, Teeth = {teeth}, T = {T:.6f}s, dt = {dt:.6f}s")
 
-        cycle_start_time = time.time()  # Lưu thời điểm bắt đầu
+        cycle_start_time = time.perf_counter_ns()  # Lưu thời điểm bắt đầu
 
         for tooth in range(teeth):
             for i in range(samples_per_tooth):
-                # Tính toán thời điểm chính xác để gửi mẫu
-                target_time = cycle_start_time + (tooth * samples_per_tooth + i) * dt
+                target_time = cycle_start_time + int((tooth * samples_per_tooth + i) * dt * 1e9)
 
-                if tooth < gap_teeth:  # Nếu là răng khuyết, gửi 0
-                    send_to_dac(0)
+                if tooth < gap_teeth:
+                    spi_time = send_to_dac(0)
                 else:
-                    value = np.sin(omega * i * dt)  # Tạo giá trị sóng sine
-                    send_to_dac(value)
+                    value = np.sin(omega * i * dt)
+                    spi_time = send_to_dac(value)
 
-                # Chờ đến đúng thời gian mẫu tiếp theo
-                while time.time() < target_time:
-                    pass  # Giữ CPU chờ đến thời điểm thích hợp
+                # Đảm bảo gửi SPI không lâu hơn `dt`
+                while time.perf_counter_ns() < target_time:
+                    pass  # Chờ chính xác đến thời điểm mẫu tiếp theo
 
             # Kiểm tra nếu tham số thay đổi
             if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
@@ -75,6 +74,21 @@ def spi_loop():
         last_teeth = teeth
         last_gap_teeth = gap_teeth
 
+
+@app.route('/update_engine_data', methods=['POST'])
+def update_engine_data():
+    global engine_speed, teeth, gap_teeth
+    data = request.get_json()
+    
+    if "speed" in data and "teeth" in data and "gapTeeth" in data:
+        engine_speed = int(data["speed"])
+        teeth = int(data["teeth"])
+        gap_teeth = int(data["gapTeeth"])
+        
+        print(f"Updated: Speed = {engine_speed} rpm, Teeth = {teeth}, GapTeeth = {gap_teeth}")
+        return jsonify({"message": "Data updated", "speed": engine_speed, "teeth": teeth, "gapTeeth": gap_teeth})
+    
+    return jsonify({"error": "Invalid request"}), 400
 
 # Chạy Flask server trong luồng riêng
 def run_flask():
