@@ -31,11 +31,11 @@ def send_to_dac(value):
         print(f"SPI Error: {e}")
 
 def spi_loop():
-    global engine_speed, teeth, gap_teeth
-    last_speed = last_teeth = last_gap_teeth = None  # Khởi tạo giá trị cũ
+    global engine_speed, teeth, gap_teeth, samples_per_tooth
+    last_speed = last_teeth = last_gap_teeth = None  # Khởi tạo biến theo dõi thay đổi
 
     while True:
-        # Nếu có thay đổi thông số, cập nhật lại T, dt, omega
+        # Cập nhật thông số nếu có thay đổi
         if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
             last_speed, last_teeth, last_gap_teeth = engine_speed, teeth, gap_teeth
             T = 1 / (engine_speed / 60 * teeth)  # Chu kỳ toàn bộ bánh răng
@@ -44,22 +44,23 @@ def spi_loop():
 
             print(f"Updated: Engine speed = {engine_speed}, Teeth = {teeth}, T = {T:.6f}s, dt = {dt:.6f}s")
 
-        start_time = time.perf_counter_ns()  # Thời điểm bắt đầu chu kỳ
-
+        # Bắt đầu vòng lặp xuất tín hiệu
         for tooth in range(teeth):
-            if tooth < gap_teeth:  # Nếu là răng khuyết, gửi 0
+            start_time = time.perf_counter_ns()  # Lưu thời điểm bắt đầu
+
+            if tooth < gap_teeth:  # Răng khuyết -> Gửi 0
                 for _ in range(samples_per_tooth):
                     send_to_dac(0)
                     wait_until(start_time, dt)
-            else:  # Nếu là răng có sóng sine
+            else:  # Răng có xung sine
                 for i in range(samples_per_tooth):
-                    value = int((np.sin(omega * i * dt) + 1) * 2047)  # Chuyển về giá trị DAC 12-bit
+                    value = int((np.sin(omega * i * dt) * 2047) + 2048)  # Chuyển về DAC 12-bit (0 - 4095)
                     send_to_dac(value)
                     wait_until(start_time, dt)
 
 def wait_until(start_time, delay):
     """Chờ cho đến khi đủ thời gian delay từ start_time."""
-    target_time = start_time + int(delay * 1e9)  # Chuyển delay sang ns
+    target_time = start_time + int(delay * 1e9)  # Chuyển delay sang nano giây
     while time.perf_counter_ns() < target_time:
         pass  # Bận chờ để đảm bảo thời gian chính xác
 
