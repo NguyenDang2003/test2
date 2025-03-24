@@ -15,14 +15,16 @@ engine_speed = 1000  # Tốc độ động cơ (rpm)
 teeth = 36           # Số răng
 gap_teeth = 0        # Số răng khuyết
 
-# Số mẫu trên mỗi răng
-samples_per_tooth = 1000
+# Số mẫu trên mỗi răng - cố định
+samples_per_tooth = 100
 
 def send_to_dac(value):
     """Gửi giá trị đến DAC MCP4921 qua SPI."""
-    value = int((value + 1) / 2 * 4095)  # Chuyển [-1,1] thành [0, 4095]
-    value = max(0, min(4095, value))  # Giới hạn trong khoảng hợp lệ
-    high_byte = (0x30 | (value >> 8)) & 0xFF  # MCP4921 config
+    value = (value + 1) / 2  # Chuyển [-1,1] thành [0,1]
+    value = int(value * 4095)  # Chuyển thành dải 0 - 4095
+    value = max(0, min(4095, value))  # Đảm bảo không vượt quá phạm vi
+    
+    high_byte = (0x30 | (value >> 8)) & 0xFF  # Cấu hình MCP4921
     low_byte = value & 0xFF
     
     try:
@@ -31,94 +33,98 @@ def send_to_dac(value):
         print(f"SPI Error: {e}")
 
 def spi_loop():
-    global engine_speed, teeth, gap_teeth, samples_per_tooth
+    global engine_speed, teeth, gap_teeth
+
     last_speed = engine_speed
     last_teeth = teeth
     last_gap_teeth = gap_teeth
     
-    # Precompute sine table
-    sine_table = np.sin(2 * np.pi * np.arange(samples_per_tooth) / samples_per_tooth)
-    
-    # Precompute zero samples for gap teeth
-    zero_samples = np.zeros(samples_per_tooth)
-    
+    # phase = 0.0  # Ghi nhớ pha của sóng
+
     while True:
-        # Tính toán lại các tham số
-        T = 1 / (engine_speed / 60 * teeth)
-        dt = T / samples_per_tooth
+        # Tính toán các giá trị dựa vào engine_speed
+        tooth_freq = engine_speed / 60  # Số răng / giây (Hz)
+        full_cycle_freq = tooth_freq * teeth  # Tần số của một chu kỳ đầy đủ (Hz)
+        tooth_period = 1 / full_cycle_freq  # Chu kỳ của một răng (s)
+        sample_period = tooth_period / samples_per_tooth  # Thời gian giữa các mẫu (s)
         
-        print(f"New params: speed={engine_speed}, T={T:.6f}, dt={dt:.6f}")
+        print(f"Running SPI loop: Engine speed = {engine_speed} rpm, Teeth = {teeth}, "
+              f"Tooth period = {tooth_period:.6f}s, Sample period = {sample_period:.6f}s")
 
-        # Hàm sleep chính xác
-        def precise_sleep(duration):
-            end = time.perf_counter() + duration
-            while time.perf_counter() < end:
-                pass
+        # Thời gian bắt đầu chu kỳ
+        cycle_start_time = time.time()
 
-        # Lưu trạng thái hiện tại để phát hiện thay đổi
-        current_params = (engine_speed, teeth, gap_teeth)
-        
-        try:
-            while True:
-                start_tooth = time.perf_counter()
-                
-                for tooth in range(teeth):
-                    if tooth < gap_teeth:
-                        samples = zero_samples
-                    else:
-                        samples = sine_table
+        # Tạo sóng sine cho từng răng
+        for tooth in range(teeth):
+            if tooth < gap_teeth:  # Răng khuyết
+                for i in range(samples_per_tooth):
+                    send_to_dac(0)
                     
-                    start_sample = time.perf_counter()
-                    for i, sample in enumerate(samples):
-                        send_to_dac(sample)
-                        target_time = start_sample + (i + 1) * dt
-                        while time.perf_counter() < target_time:
-                            pass
+                    # Tính thời điểm mẫu tiếp theo
+                    next_sample_time = cycle_start_time + (tooth * samples_per_tooth + i + 1) * sample_period
                     
-                    # Kiểm tra thay đổi sau mỗi răng
-                    if current_params != (engine_speed, teeth, gap_teeth):
-                        raise StopIteration
-                        
-                # Kiểm tra timing tổng thể
-                actual_duration = time.perf_counter() - start_tooth
-                if actual_duration > T * teeth:
-                    print(f"Timing warning: {actual_duration:.6f} > {T * teeth:.6f}")
-                
-        except StopIteration:
-            print("Parameter change detected, recalculating...")
-            last_speed, last_teeth, last_gap_teeth = engine_speed, teeth, gap_teeth
-            # Cập nhật lại bảng sine nếu cần
-            if samples_per_tooth != len(sine_table):
-                sine_table = np.sin(2 * np.pi * np.arange(samples_per_tooth) / samples_per_tooth)
-                zero_samples = np.zeros(samples_per_tooth)
-
+                    # Đợi đến thời điểm đó
+                    time_to_wait = max(0, next_sample_time - time.time())
+                    if time_to_wait > 0:
+                        time.sleep(time_to_wait)
+            else:
+                # Tạo sóng sine cho răng bình thường
+                for i in range(samples_per_tooth):
+                    # Tính góc pha dựa vào vị trí mẫu
+                    phase_angle = 2 * np.pi * i / samples_per_tooth
+                    value = np.sin(phase_angle)
+                    send_to_dac(value)
+                    
+                    # Tính thời điểm mẫu tiếp theo
+                    next_sample_time = cycle_start_time + (tooth * samples_per_tooth + i + 1) * sample_period
+                    
+                    # Đợi đến thời điểm đó
+                    time_to_wait = max(0, next_sample_time - time.time())
+                    if time_to_wait > 0:
+                        time.sleep(time_to_wait)
             
+            # Cập nhật pha cho răng tiếp theo
+            # phase += 2 * np.pi
+            
+            # Kiểm tra nếu tham số thay đổi
+            if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
+                break
+
+        # Cập nhật tham số nếu có thay đổi
+        last_speed = engine_speed
+        last_teeth = teeth
+        last_gap_teeth = gap_teeth
 
 @app.route('/update_engine_data', methods=['POST'])
 def update_engine_data():
     global engine_speed, teeth, gap_teeth
     data = request.get_json()
-    
+
     if "speed" in data and "teeth" in data and "gapTeeth" in data:
         engine_speed = int(data["speed"])
         teeth = int(data["teeth"])
         gap_teeth = int(data["gapTeeth"])
-        
+
         print(f"Updated: Speed = {engine_speed} rpm, Teeth = {teeth}, GapTeeth = {gap_teeth}")
         return jsonify({"message": "Data updated", "speed": engine_speed, "teeth": teeth, "gapTeeth": gap_teeth})
-    
+
     return jsonify({"error": "Invalid request"}), 400
 
 # Chạy Flask server trong luồng riêng
 def run_flask():
-    app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
+    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
 
-flask_thread = threading.Thread(target=run_flask, daemon=True)
-flask_thread.start()
+if __name__ == "__main__":
+    # Chạy luồng Flask
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
 
-# Chạy luồng SPI
-spi_thread = threading.Thread(target=spi_loop, daemon=True)
-spi_thread.start()
+    # Chạy luồng SPI
+    spi_thread = threading.Thread(target=spi_loop, daemon=True)
+    spi_thread.start()
 
-while True:
-    time.sleep(1)
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Program terminated")
