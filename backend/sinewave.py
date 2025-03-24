@@ -15,7 +15,7 @@ engine_speed = 1000  # Tốc độ động cơ (rpm)
 teeth = 36           # Số răng
 gap_teeth = 0        # Số răng khuyết
 
-# Số mẫu trên mỗi răng - cố định
+# Số mẫu trên mỗi răng
 samples_per_tooth = 100
 
 def send_to_dac(value):
@@ -38,53 +38,40 @@ def spi_loop():
     last_speed = engine_speed
     last_teeth = teeth
     last_gap_teeth = gap_teeth
-    
-    # Tần số cơ bản của tín hiệu (Hz)
-    # Tần số này phải tỷ lệ với engine_speed
-    signal_frequency = engine_speed / 60  # Chuyển rpm thành Hz
-    
-    # Bộ đếm mẫu để theo dõi vị trí trong chu kỳ
-    sample_counter = 0
-    
+
     while True:
-        # Cập nhật tần số khi engine_speed thay đổi
-        signal_frequency = engine_speed / 60  # Tần số (Hz)
+        # Tính toán các thông số mới
+        T = 1 / (engine_speed / 60 * teeth)  # Chu kỳ của một răng
+        dt = T / samples_per_tooth           # Khoảng thời gian giữa 2 mẫu
+        omega = 2 * np.pi / T                # Tần số góc
+
+        print(f"Engine Speed = {engine_speed} rpm, Teeth = {teeth}, Gap Teeth = {gap_teeth}")
+        print(f"Cycle Time = {T:.6f}s, Sample Time = {dt:.6f}s")
+
+        cycle_start_time = time.time()  # Lưu thời gian bắt đầu vòng lặp
         
-        # Tính toán thời gian mỗi chu kỳ và thời gian mỗi mẫu
-        cycle_time = 1 / signal_frequency        # Thời gian một chu kỳ của tín hiệu (s)
-        time_per_tooth = cycle_time / teeth      # Thời gian mỗi răng (s)
-        sample_time = time_per_tooth / samples_per_tooth  # Thời gian mỗi mẫu (s)
-        
-        print(f"Engine speed = {engine_speed} rpm, Signal frequency = {signal_frequency} Hz")
-        print(f"Teeth = {teeth}, Gap teeth = {gap_teeth}")
-        print(f"Cycle time = {cycle_time:.6f}s, Sample time = {sample_time:.6f}s")
-        
-        # Tạo và gửi mẫu tín hiệu
+        # Lặp qua từng răng
         for tooth in range(teeth):
-            if tooth < gap_teeth:
-                # Răng khuyết - gửi giá trị 0
-                for i in range(samples_per_tooth):
+            for i in range(samples_per_tooth):
+                target_time = cycle_start_time + (tooth * samples_per_tooth + i) * dt
+
+                if tooth < gap_teeth:
                     send_to_dac(0)
-                    time.sleep(sample_time)
-            else:
-                # Răng bình thường - gửi tín hiệu sine
-                for i in range(samples_per_tooth):
-                    # Tính toán vị trí trong chu kỳ sóng sine (0 đến 2π)
-                    # Quan trọng: Tần số phải dựa vào engine_speed
-                    phase = 2 * np.pi * signal_frequency * sample_counter * sample_time
-                    value = np.sin(phase)
+                else:
+                    time_since_start = i * dt  # Thời gian từ khi bắt đầu răng
+                    value = np.sin(omega * time_since_start)  # Tính giá trị sóng sine
                     send_to_dac(value)
-                    time.sleep(sample_time)
-                    sample_counter += 1
-            
+
+                # Chờ đến thời gian của mẫu tiếp theo
+                while time.time() < target_time:
+                    pass  
+
             # Kiểm tra nếu có thay đổi thông số
             if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
                 last_speed = engine_speed
                 last_teeth = teeth
                 last_gap_teeth = gap_teeth
-                # Đặt lại bộ đếm mẫu khi thay đổi thông số
-                sample_counter = 0
-                break
+                break  # Reset lại vòng lặp để cập nhật thông số mới
 
 @app.route('/update_engine_data', methods=['POST'])
 def update_engine_data():
@@ -100,22 +87,3 @@ def update_engine_data():
         return jsonify({"message": "Data updated", "speed": engine_speed, "teeth": teeth, "gapTeeth": gap_teeth})
 
     return jsonify({"error": "Invalid request"}), 400
-
-# Chạy Flask server trong luồng riêng
-def run_flask():
-    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
-
-if __name__ == "__main__":
-    # Chạy luồng Flask
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
-
-    # Chạy luồng SPI
-    spi_thread = threading.Thread(target=spi_loop, daemon=True)
-    spi_thread.start()
-
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("Program terminated")
