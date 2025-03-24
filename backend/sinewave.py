@@ -6,97 +6,121 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
+# Khởi tạo SPI
 spi = spidev.SpiDev()
 spi.open(0, 0)  # SPI bus 0, device 0 (CE0)
-spi.max_speed_hz = 5000000  # Tăng tốc độ SPI lên 5 MHz để giảm độ trễ
+spi.max_speed_hz = 1000000  # 1 MHz
 
 # Biến toàn cục lưu thông số động cơ
 engine_speed = 1000  # Tốc độ động cơ (rpm)
 teeth = 36           # Số răng
 gap_teeth = 0        # Số răng khuyết
 
-# Số mẫu trên mỗi răng
-samples_per_tooth = 1000
+# Số mẫu trên mỗi răng - cố định
+samples_per_tooth = 100
 
-def generate_sine_buffer():
-    """Tạo buffer chứa dữ liệu sóng sin cho một răng."""
-    buffer = []
-    for i in range(samples_per_tooth):
-        phase_angle = 2 * np.pi * i / samples_per_tooth
-        value = int((np.sin(phase_angle) + 1) * 2047)  # Chuyển đổi về dải 0-4095
-        buffer.append(value >> 8)  # Byte cao
-        buffer.append(value & 0xFF)  # Byte thấp
-    return buffer
 
-sine_buffer = generate_sine_buffer()
+def generate_waveform():
+    """Tạo dữ liệu sóng sine và buffer gửi SPI"""
+    global engine_speed, teeth, gap_teeth, samples_per_tooth
+    
+    # Mảng chứa dữ liệu toàn bộ chu kỳ
+    total_samples = teeth * samples_per_tooth
+    waveform_buffer = np.zeros(total_samples, dtype=np.uint16)
 
-def send_buffer(buffer):
-    """Gửi toàn bộ buffer đến DAC qua SPI."""
-    try:
-        spi.xfer2(buffer)
-    except Exception as e:
-        print(f"SPI Error: {e}")
+    # Tạo sóng sine trước
+    sine_wave = np.sin(2 * np.pi * np.arange(samples_per_tooth) / samples_per_tooth)
+    
+    # Điền dữ liệu vào buffer
+    for tooth in range(teeth):
+        if tooth < gap_teeth:
+            waveform_buffer[tooth * samples_per_tooth : (tooth + 1) * samples_per_tooth] = 2048  # Trung bình (0V)
+        else:
+            values = ((sine_wave + 1) / 2 * 4095).astype(np.uint16)
+            waveform_buffer[tooth * samples_per_tooth : (tooth + 1) * samples_per_tooth] = values
+    
+    return waveform_buffer
+
 
 def spi_loop():
-    global engine_speed, teeth, gap_teeth
-    last_speed = engine_speed
-    last_teeth = teeth
-    last_gap_teeth = gap_teeth
-    
+    """Vòng lặp gửi tín hiệu qua SPI"""
+    global engine_speed, teeth, gap_teeth, samples_per_tooth
+
+    last_params = (engine_speed, teeth, gap_teeth)
+    waveform_buffer = generate_waveform()
+
     while True:
-        tooth_freq = engine_speed / 60  # Tần số vòng quay (Vòng/giây)
-        full_cycle_freq = tooth_freq * teeth  # Tần số của một răng (Răng/giây)
-        tooth_period = 1 / full_cycle_freq  # Chu kỳ của một răng
-        sample_period = tooth_period / samples_per_tooth  # Thời gian giữa các mẫu
+        # Tính toán lại thời gian lấy mẫu
+        tooth_period = 1 / (engine_speed * teeth / 60)
+        sample_interval = tooth_period / samples_per_tooth
 
-        print(f"Running SPI loop: Engine speed = {engine_speed} rpm, Teeth = {teeth}, "
-              f"Tooth period = {tooth_period:.6f}s, Sample period = {sample_period:.6f}s")
-        
-        cycle_start_time = time.time()
-        
-        for tooth in range(teeth):
-            if tooth < gap_teeth:
-                send_buffer([0] * (samples_per_tooth * 2))  # Gửi buffer toàn 0 cho răng khuyết
-            else:
-                send_buffer(sine_buffer)
-            
-            next_tooth_time = cycle_start_time + (tooth + 1) * tooth_period
-            time_to_wait = max(0, next_tooth_time - time.time())
-            if time_to_wait > 0:
-                time.sleep(time_to_wait)
-            
-            if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
-                break
+        print(f"New parameters: RPM={engine_speed}, Sample interval={sample_interval:.6f}s")
 
-        last_speed = engine_speed
-        last_teeth = teeth
-        last_gap_teeth = gap_teeth
+        # Kiểm tra thay đổi thông số và cập nhật buffer
+        if last_params != (engine_speed, teeth, gap_teeth):
+            waveform_buffer = generate_waveform()
+            last_params = (engine_speed, teeth, gap_teeth)
+
+        def precise_wait(target_time):
+            while time.perf_counter() < target_time:
+                pass
+
+        try:
+            while True:
+                cycle_start = time.perf_counter()
+
+                for i in range(len(waveform_buffer)):
+                    target_time = cycle_start + (i + 1) * sample_interval
+                    dac_value = waveform_buffer[i]
+
+                    # Gửi một lần buffer thay vì từng mẫu riêng lẻ
+                    high_byte = (dac_value >> 8) & 0xFF
+                    low_byte = dac_value & 0xFF
+                    spi.xfer2([high_byte, low_byte])
+
+                    precise_wait(target_time)
+
+                    # Kiểm tra nếu tham số thay đổi
+                    if last_params != (engine_speed, teeth, gap_teeth):
+                        raise StopIteration
+
+        except StopIteration:
+            print("Parameters changed, updating waveform buffer...")
+            waveform_buffer = generate_waveform()
+            last_params = (engine_speed, teeth, gap_teeth)
+
 
 @app.route('/update_engine_data', methods=['POST'])
 def update_engine_data():
+    """API cập nhật tốc độ động cơ và số răng"""
     global engine_speed, teeth, gap_teeth
     data = request.get_json()
-    
+
     if "speed" in data and "teeth" in data and "gapTeeth" in data:
         engine_speed = int(data["speed"])
         teeth = int(data["teeth"])
         gap_teeth = int(data["gapTeeth"])
-        
+
         print(f"Updated: Speed = {engine_speed} rpm, Teeth = {teeth}, GapTeeth = {gap_teeth}")
         return jsonify({"message": "Data updated", "speed": engine_speed, "teeth": teeth, "gapTeeth": gap_teeth})
-    
+
     return jsonify({"error": "Invalid request"}), 400
 
+
+# Chạy Flask server trong luồng riêng
 def run_flask():
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
 
+
 if __name__ == "__main__":
+    # Chạy luồng Flask
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    
+
+    # Chạy luồng SPI
     spi_thread = threading.Thread(target=spi_loop, daemon=True)
     spi_thread.start()
-    
+
     try:
         while True:
             time.sleep(1)
