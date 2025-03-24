@@ -18,8 +18,6 @@ spi = pi.spi_open(0, 10000000, 0)  # CE0, tốc độ 10 MHz, mode 0
 engine_speed = 1000  # Tốc độ động cơ (rpm)
 teeth = 36           # Số răng
 gap_teeth = 0        # Số răng khuyết
-
-# Số mẫu trên mỗi răng
 samples_per_tooth = 50
 
 def send_to_dac(value):
@@ -27,65 +25,49 @@ def send_to_dac(value):
     value = (value + 1) / 2  # Chuyển [-1,1] thành [0,1]
     value = int(value * 4095)  # Chuyển thành dải 0 - 4095
     value = max(0, min(4095, value))  # Đảm bảo không vượt quá phạm vi
-
+    
     high_byte = (0x30 | (value >> 8)) & 0xFF  # MCP4921: Cấu hình byte cao
     low_byte = value & 0xFF  # Byte thấp
     
     pi.spi_write(spi, [high_byte, low_byte])  # Gửi qua SPI
 
-def spi_loop():
+def generate_waveform():
+    """Tạo và gửi tín hiệu sóng sin sử dụng pigpio wave."""
     global engine_speed, teeth, gap_teeth
-
-    last_speed = engine_speed
-    last_teeth = teeth
-    last_gap_teeth = gap_teeth
     
-    phase = 0.0  # Pha sóng sin
+    pi.wave_clear()  # Xóa sóng cũ
+    pulses = []
+    
+    tooth_freq = engine_speed / 60  # Hz
+    full_cycle_freq = tooth_freq * teeth  # Hz
+    sample_period = int(1e6 / (full_cycle_freq * samples_per_tooth))  # Microseconds
+    
+    for tooth in range(teeth):
+        if tooth < gap_teeth:  # Răng khuyết
+            value = 0
+        else:
+            for i in range(samples_per_tooth):
+                value = np.sin(2 * np.pi * i / samples_per_tooth)
+                send_to_dac(value)
+                pulses.append(pigpio.pulse(1 << 0, 0, sample_period))
+    
+    pi.wave_add_generic(pulses)
+    wave_id = pi.wave_create()
+    pi.wave_send_repeat(wave_id)  # Gửi lặp vô hạn
 
+def spi_loop():
+    """Chạy vòng lặp cập nhật sóng khi có thay đổi."""
+    global engine_speed, teeth, gap_teeth
+    
+    last_speed, last_teeth, last_gap_teeth = engine_speed, teeth, gap_teeth
+    
     while True:
-        # Tính toán các giá trị dựa vào engine_speed
-        tooth_freq = engine_speed / 60  # Số răng / giây (Hz)
-        full_cycle_freq = tooth_freq * teeth  # Tần số của một chu kỳ đầy đủ (Hz)
-        if full_cycle_freq == 0:
-            time.sleep(0.1)
-            continue
-
-        tooth_period = 1 / full_cycle_freq  # Chu kỳ của một răng (s)
-        sample_period = tooth_period / samples_per_tooth  # Thời gian giữa các mẫu (s)
-        
-        print(f"Running SPI loop: Engine speed = {engine_speed} rpm, Teeth = {teeth}, "
-              f"Tooth period = {tooth_period:.6f}s, Sample period = {sample_period:.6f}s")
-
-        cycle_start_time = time.time()
-
-        for tooth in range(teeth):
-            if tooth < gap_teeth:  # Răng khuyết
-                for _ in range(samples_per_tooth):
-                    send_to_dac(0)
-
-                    next_sample_time = cycle_start_time + (_ + 1) * sample_period
-                    time_to_wait = max(0, next_sample_time - time.time())
-                    if time_to_wait > 0:
-                        time.sleep(time_to_wait)
-            else:
-                for i in range(samples_per_tooth):
-                    phase_angle = phase + 2 * np.pi * i / samples_per_tooth
-                    value = np.sin(phase_angle)
-                    send_to_dac(value)
-
-                    next_sample_time = cycle_start_time + (tooth * samples_per_tooth + i + 1) * sample_period
-                    time_to_wait = max(0, next_sample_time - time.time())
-                    if time_to_wait > 0:
-                        time.sleep(time_to_wait)
-            
-            phase += 2 * np.pi  # Cập nhật pha
-
-            if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
-                break
-
-        last_speed = engine_speed
-        last_teeth = teeth
-        last_gap_teeth = gap_teeth
+        if (engine_speed != last_speed or
+            teeth != last_teeth or
+            gap_teeth != last_gap_teeth):
+            generate_waveform()
+            last_speed, last_teeth, last_gap_teeth = engine_speed, teeth, gap_teeth
+        time.sleep(0.1)
 
 @app.route('/update_engine_data', methods=['POST'])
 def update_engine_data():
@@ -109,15 +91,17 @@ def run_flask():
 if __name__ == "__main__":
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-
+    
     spi_thread = threading.Thread(target=spi_loop, daemon=True)
     spi_thread.start()
-
+    
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         print("Shutting down...")
-        pi.spi_close(spi)  # Đóng SPI
-        pi.stop()  # Dừng pigpio
+        pi.wave_tx_stop()
+        pi.wave_clear()
+        pi.spi_close(spi)
+        pi.stop()
         print("Program terminated")
