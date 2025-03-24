@@ -26,8 +26,7 @@ class NetworkService {
   ) async {
     try {
       final response = await http.post(
-        Uri.parse('http://
-        :5000/update_engine_data'),
+        Uri.parse('http://127.0.0.1:5000/update_engine_data'),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
           "speed": speed,
