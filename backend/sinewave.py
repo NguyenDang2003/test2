@@ -45,7 +45,7 @@ def spi_loop():
         # Tính toán các giá trị dựa vào engine_speed
         tooth_freq = engine_speed / 60  # Số răng / giây (Hz)
         full_cycle_freq = tooth_freq * teeth  # Tần số của một chu kỳ đầy đủ (Hz)
-        tooth_period = 1 / full_cycle_freq * teeth  # Chu kỳ của một răng (s)
+        tooth_period = 1 / full_cycle_freq  # Chu kỳ của một răng (s)
         sample_period = tooth_period / samples_per_tooth  # Thời gian giữa các mẫu (s)
         
         print(f"Running SPI loop: Engine speed = {engine_speed} rpm, Teeth = {teeth}, "
