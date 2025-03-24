@@ -39,61 +39,52 @@ def spi_loop():
     last_teeth = teeth
     last_gap_teeth = gap_teeth
     
-    phase = 0.0  # Ghi nhớ pha của sóng
-
+    # Tần số cơ bản của tín hiệu (Hz)
+    # Tần số này phải tỷ lệ với engine_speed
+    signal_frequency = engine_speed / 60  # Chuyển rpm thành Hz
+    
+    # Bộ đếm mẫu để theo dõi vị trí trong chu kỳ
+    sample_counter = 0
+    
     while True:
-        # Tính toán các giá trị dựa vào engine_speed
-        tooth_freq = engine_speed / 60  # Số răng / giây (Hz)
-        full_cycle_freq = tooth_freq * teeth  # Tần số của một chu kỳ đầy đủ (Hz)
-        tooth_period = 1 / full_cycle_freq * teeth  # Chu kỳ của một răng (s)
-        sample_period = tooth_period / samples_per_tooth  # Thời gian giữa các mẫu (s)
+        # Cập nhật tần số khi engine_speed thay đổi
+        signal_frequency = engine_speed / 60  # Tần số (Hz)
         
-        print(f"Running SPI loop: Engine speed = {engine_speed} rpm, Teeth = {teeth}, "
-              f"Tooth period = {tooth_period:.6f}s, Sample period = {sample_period:.6f}s")
-
-        # Thời gian bắt đầu chu kỳ
-        cycle_start_time = time.time()
-
-        # Tạo sóng sine cho từng răng
+        # Tính toán thời gian mỗi chu kỳ và thời gian mỗi mẫu
+        cycle_time = 1 / signal_frequency        # Thời gian một chu kỳ của tín hiệu (s)
+        time_per_tooth = cycle_time / teeth      # Thời gian mỗi răng (s)
+        sample_time = time_per_tooth / samples_per_tooth  # Thời gian mỗi mẫu (s)
+        
+        print(f"Engine speed = {engine_speed} rpm, Signal frequency = {signal_frequency} Hz")
+        print(f"Teeth = {teeth}, Gap teeth = {gap_teeth}")
+        print(f"Cycle time = {cycle_time:.6f}s, Sample time = {sample_time:.6f}s")
+        
+        # Tạo và gửi mẫu tín hiệu
         for tooth in range(teeth):
-            if tooth < gap_teeth:  # Răng khuyết
+            if tooth < gap_teeth:
+                # Răng khuyết - gửi giá trị 0
                 for i in range(samples_per_tooth):
                     send_to_dac(0)
-                    
-                    # Tính thời điểm mẫu tiếp theo
-                    next_sample_time = cycle_start_time + (tooth * samples_per_tooth + i + 1) * sample_period
-                    
-                    # Đợi đến thời điểm đó
-                    time_to_wait = max(0, next_sample_time - time.time())
-                    if time_to_wait > 0:
-                        time.sleep(time_to_wait)
+                    time.sleep(sample_time)
             else:
-                # Tạo sóng sine cho răng bình thường
+                # Răng bình thường - gửi tín hiệu sine
                 for i in range(samples_per_tooth):
-                    # Tính góc pha dựa vào vị trí mẫu
-                    phase_angle = phase + 2 * np.pi * i / samples_per_tooth
-                    value = np.sin(phase_angle)
+                    # Tính toán vị trí trong chu kỳ sóng sine (0 đến 2π)
+                    # Quan trọng: Tần số phải dựa vào engine_speed
+                    phase = 2 * np.pi * signal_frequency * sample_counter * sample_time
+                    value = np.sin(phase)
                     send_to_dac(value)
-                    
-                    # Tính thời điểm mẫu tiếp theo
-                    next_sample_time = cycle_start_time + (tooth * samples_per_tooth + i + 1) * sample_period
-                    
-                    # Đợi đến thời điểm đó
-                    time_to_wait = max(0, next_sample_time - time.time())
-                    if time_to_wait > 0:
-                        time.sleep(time_to_wait)
+                    time.sleep(sample_time)
+                    sample_counter += 1
             
-            # Cập nhật pha cho răng tiếp theo
-            phase += 2 * np.pi
-            
-            # Kiểm tra nếu tham số thay đổi
+            # Kiểm tra nếu có thay đổi thông số
             if engine_speed != last_speed or teeth != last_teeth or gap_teeth != last_gap_teeth:
+                last_speed = engine_speed
+                last_teeth = teeth
+                last_gap_teeth = gap_teeth
+                # Đặt lại bộ đếm mẫu khi thay đổi thông số
+                sample_counter = 0
                 break
-
-        # Cập nhật tham số nếu có thay đổi
-        last_speed = engine_speed
-        last_teeth = teeth
-        last_gap_teeth = gap_teeth
 
 @app.route('/update_engine_data', methods=['POST'])
 def update_engine_data():
