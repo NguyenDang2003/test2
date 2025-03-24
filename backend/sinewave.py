@@ -20,40 +20,31 @@ teeth = 36           # Số răng
 gap_teeth = 0        # Số răng khuyết
 samples_per_tooth = 50
 
-def send_to_dac(value):
-    """Gửi giá trị đến DAC MCP4921 qua SPI bằng pigpio."""
-    value = (value + 1) / 2  # Chuyển [-1,1] thành [0,1]
-    value = int(value * 4095)  # Chuyển thành dải 0 - 4095
-    value = max(0, min(4095, value))  # Đảm bảo không vượt quá phạm vi
-    
-    high_byte = (0x30 | (value >> 8)) & 0xFF  # MCP4921: Cấu hình byte cao
-    low_byte = value & 0xFF  # Byte thấp
-    
-    pi.spi_write(spi, [high_byte, low_byte])  # Gửi qua SPI
-
-def generate_waveform():
-    """Tạo và gửi tín hiệu sóng sin sử dụng pigpio wave."""
+def generate_spi_waveform():
+    """Tạo và gửi tín hiệu sóng sin sử dụng pigpio wave_chain."""
     global engine_speed, teeth, gap_teeth
     
     pi.wave_clear()  # Xóa sóng cũ
-    pulses = []
+    wave_ids = []
     
     tooth_freq = engine_speed / 60  # Hz
     full_cycle_freq = tooth_freq * teeth  # Hz
     sample_period = int(1e6 / (full_cycle_freq * samples_per_tooth))  # Microseconds
     
-    for tooth in range(teeth):
-        if tooth < gap_teeth:  # Răng khuyết
-            value = 0
-        else:
-            for i in range(samples_per_tooth):
-                value = np.sin(2 * np.pi * i / samples_per_tooth)
-                send_to_dac(value)
-                pulses.append(pigpio.pulse(1 << 0, 0, sample_period))
+    for i in range(samples_per_tooth):
+        value = np.sin(2 * np.pi * i / samples_per_tooth)
+        value = (value + 1) / 2  # Chuyển [-1,1] thành [0,1]
+        value = int(value * 4095)  # Chuyển thành dải 0 - 4095
+        value = max(0, min(4095, value))  # Đảm bảo không vượt quá phạm vi
+        
+        high_byte = (0x30 | (value >> 8)) & 0xFF
+        low_byte = value & 0xFF
+        spi_data = [high_byte, low_byte]
+        
+        pi.wave_add_spi(channel=0, data=spi_data, spi_speed=10000000)
+        wave_ids.append(pi.wave_create())
     
-    pi.wave_add_generic(pulses)
-    wave_id = pi.wave_create()
-    pi.wave_send_repeat(wave_id)  # Gửi lặp vô hạn
+    pi.wave_chain(wave_ids * teeth)  # Lặp lại toàn bộ chu kỳ răng
 
 def spi_loop():
     """Chạy vòng lặp cập nhật sóng khi có thay đổi."""
@@ -65,7 +56,7 @@ def spi_loop():
         if (engine_speed != last_speed or
             teeth != last_teeth or
             gap_teeth != last_gap_teeth):
-            generate_waveform()
+            generate_spi_waveform()
             last_speed, last_teeth, last_gap_teeth = engine_speed, teeth, gap_teeth
         time.sleep(0.1)
 
